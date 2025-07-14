@@ -52,10 +52,16 @@ export class GmailService {
     }
   }
 
-  async getLatestEmails(maxResults = 50) {
+  // In gmail.js, update the getLatestEmails method
+async getLatestEmails(maxResults = 50) {
     try {
       const auth = await this.auth.getClient();
       const gmail = google.gmail({ version: 'v1', auth });
+      
+      // Test basic access first
+      logger.info('🔍 Testing Gmail profile access...');
+      const profile = await gmail.users.getProfile({ userId: 'me' });
+      logger.info(`✅ Gmail profile accessible: ${profile.data.emailAddress}`);
       
       const query = [
         'from:(linkedin.com OR jobs-noreply@linkedin.com)',
@@ -64,35 +70,23 @@ export class GmailService {
         `newer_than:${CONFIG.MAX_EMAIL_AGE_DAYS}d`
       ].join(' ');
       
+      logger.info(`🔍 Gmail query: ${query}`);
+      
       const response = await gmail.users.messages.list({
         userId: 'me',
         maxResults,
         q: query
       });
-
-      if (!response.data.messages) {
-        return [];
-      }
-
-      const messages = await Promise.all(
-        response.data.messages.map(async (message) => {
-          try {
-            const details = await gmail.users.messages.get({
-              userId: 'me',
-              id: message.id,
-              format: 'full'
-            });
-            
-            return this.parseMessage(details.data);
-          } catch (error) {
-            logger.error(`Error fetching message ${message.id}:`, error);
-            return null;
-          }
-        })
-      );
-
-      return messages.filter(Boolean);
+  
+      // ... rest of the method
     } catch (error) {
+      logger.error('❌ Detailed Gmail error:', {
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        details: error.details || 'No additional details',
+        stack: error.stack
+      });
       throw new Error(`Gmail API error: ${error.message}`);
     }
   }
