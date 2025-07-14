@@ -50,9 +50,15 @@ export class DriveService {
         parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
       };
 
+      // Convert buffer to stream for upload
+      const { Readable } = await import('stream');
+      const stream = new Readable();
+      stream.push(fileBuffer);
+      stream.push(null);
+
       const media = {
         mimeType,
-        body: fileBuffer
+        body: stream
       };
 
       const response = await drive.files.create({
@@ -73,73 +79,118 @@ export class DriveService {
   }
 
   async convertPDFToText(fileBuffer, filename) {
+    const auth = await this.auth.getClient();
+    const drive = google.drive({ version: 'v3', auth });
+    
+    let tempPdfId = null;
+    let tempDocId = null;
+    
     try {
-      const auth = await this.auth.getClient();
-      const drive = google.drive({ version: 'v3', auth });
+      logger.info(`🔍 Starting Google Drive OCR for: ${filename}`);
       
-      // First upload the PDF
-      const tempFilename = `OCR_TEMP_${Date.now()}_${filename}`;
+      // Step 1: Upload PDF to Drive
+      const tempFilename = `OCR_TEMP_${Date.now()}_${filename.replace(/[<>:"/\\|?*]/g, '_')}`;
+      
+      // Convert buffer to stream
+      const { Readable } = await import('stream');
+      const stream = new Readable();
+      stream.push(fileBuffer);
+      stream.push(null);
       
       const fileMetadata = {
         name: tempFilename,
         parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
       };
+
       const media = {
         mimeType: 'application/pdf',
-        body: fileBuffer
+        body: stream
       };
- 
+
       const uploadResponse = await drive.files.create({
         requestBody: fileMetadata,
         media: media,
         fields: 'id'
       });
- 
-      const pdfFileId = uploadResponse.data.id;
- 
-      try {
-        // Convert PDF to Google Doc with OCR
-        const convertResponse = await drive.files.copy({
-          fileId: pdfFileId,
-          requestBody: {
-            name: `OCR_DOC_${Date.now()}`,
-            mimeType: 'application/vnd.google-apps.document',
-            parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
-          },
-          ocrLanguage: CONFIG.OCR_LANGUAGE || 'en'
-        });
- 
-        const docFileId = convertResponse.data.id;
- 
-        // Export the document as plain text
-        const textResponse = await drive.files.export({
-          fileId: docFileId,
-          mimeType: 'text/plain'
-        });
- 
-        const extractedText = textResponse.data;
- 
-        // Clean up temporary files
-        await Promise.all([
-          drive.files.delete({ fileId: pdfFileId }),
-          drive.files.delete({ fileId: docFileId })
-        ]);
- 
-        logger.info(`📄 OCR extraction completed: ${extractedText.length} characters`);
-        
-        return {
-          text: extractedText,
-          length: extractedText.length
-        };
- 
-      } catch (conversionError) {
-        // Clean up PDF file if conversion fails
-        await drive.files.delete({ fileId: pdfFileId }).catch(() => {});
-        throw conversionError;
-      }
- 
+
+      tempPdfId = uploadResponse.data.id;
+      logger.info(`📄 Temporary PDF uploaded: ${tempPdfId}`);
+
+      // Step 2: Convert PDF to Google Doc with OCR
+      const convertResponse = await drive.files.copy({
+        fileId: tempPdfId,
+        requestBody: {
+          name: `OCR_DOC_${Date.now()}_${filename}`,
+          mimeType: 'application/vnd.google-apps.document',
+          parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
+        },
+        ocrLanguage: CONFIG.OCR_LANGUAGE || 'en'
+      });
+
+      tempDocId = convertResponse.data.id;
+      logger.info(`📝 OCR document created: ${tempDocId}`);
+
+      // Step 3: Export the document as plain text
+      const textResponse = await drive.files.export({
+        fileId: tempDocId,
+        mimeType: 'text/plain'
+      });
+
+      const extractedText = textResponse.data;
+      logger.info(`📖 OCR extraction completed: ${extractedText.length} characters`);
+
+      // Step 4: Clean up temporary files
+      await Promise.allSettled([
+        drive.files.delete({ fileId: tempPdfId }),
+        drive.files.delete({ fileId: tempDocId })
+      ]);
+      
+      logger.info('🗑️ Temporary OCR files cleaned up');
+
+      return {
+        text: this.formatOCRText(extractedText, filename),
+        originalText: extractedText,
+        length: extractedText.length
+      };
+
     } catch (error) {
-      throw new Error(`OCR conversion failed: ${error.message}`);
+      // Clean up any temporary files on error
+      if (tempPdfId) {
+        try {
+          await drive.files.delete({ fileId: tempPdfId });
+        } catch (cleanupError) {
+          logger.warn('⚠️ Failed to cleanup temp PDF:', cleanupError.message);
+        }
+      }
+      
+      if (tempDocId) {
+        try {
+          await drive.files.delete({ fileId: tempDocId });
+        } catch (cleanupError) {
+          logger.warn('⚠️ Failed to cleanup temp Doc:', cleanupError.message);
+        }
+      }
+      
+      throw new Error(`Google Drive OCR failed: ${error.message}`);
     }
   }
- }
+
+  formatOCRText(extractedText, filename) {
+    const cleanText = extractedText
+      .replace(/\s+/g, ' ')
+      .replace(/\n+/g, '\n')
+      .trim();
+
+    return `--- RESUME TEXT (GOOGLE DRIVE OCR) ---
+Original File: ${filename}
+Extraction Method: Google Drive OCR
+File Size: ${extractedText.length} characters
+OCR Language: ${CONFIG.OCR_LANGUAGE || 'en'}
+Processing Date: ${new Date().toISOString()}
+
+--- EXTRACTED CONTENT ---
+${cleanText}
+
+--- END OF RESUME ---`;
+  }
+}

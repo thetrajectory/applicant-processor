@@ -1,32 +1,27 @@
-import Tesseract from 'tesseract.js';
-import pdfParse from 'pdf-parse';
-import { CONFIG } from '../config.js';
 import { createLogger } from './logger.js';
+import { CONFIG } from '../config.js';
 
 const logger = createLogger();
 
 export class OCRService {
   constructor() {
-    this.tesseract = Tesseract;
+    // This service now relies entirely on Google Drive's OCR capabilities
+    // which are accessed through the DriveService
   }
 
   async processPDF(pdfBuffer, filename) {
     try {
-      logger.info(`📄 Starting OCR processing for: ${filename}`);
+      logger.info(`📄 Processing PDF with Google Drive OCR: ${filename}`);
       
-      // First try to extract text directly from PDF
-      let extractedText = await this.extractTextFromPDF(pdfBuffer);
+      // This method now serves as a wrapper/fallback
+      // The actual OCR processing is done in DriveService.convertPDFToText()
       
-      // If direct extraction fails or produces minimal text, use OCR
-      if (!extractedText || extractedText.trim().length < 100) {
-        logger.info('📄 Direct PDF text extraction insufficient, using OCR...');
-        extractedText = await this.performOCR(pdfBuffer);
-      }
+      const result = this.formatOCRResult(
+        'PDF processing requires Google Drive OCR - see DriveService.convertPDFToText()',
+        filename
+      );
       
-      // Format the result
-      const result = this.formatOCRResult(extractedText, filename);
-      
-      logger.info(`📖 OCR completed: ${result.text.length} characters extracted`);
+      logger.warn('⚠️ Direct OCR processing called - use DriveService.convertPDFToText() instead');
       
       return result;
       
@@ -36,48 +31,15 @@ export class OCRService {
     }
   }
 
-  async extractTextFromPDF(pdfBuffer) {
-    try {
-      const data = await pdfParse(pdfBuffer);
-      return data.text;
-    } catch (error) {
-      logger.warn(`⚠️ Direct PDF text extraction failed:`, error);
-      return '';
-    }
-  }
-
-  async performOCR(pdfBuffer) {
-    try {
-      // Convert PDF to image first (this is a simplified approach)
-      // In production, you might want to use a more robust PDF to image conversion
-      const { data: { text } } = await this.tesseract.recognize(
-        pdfBuffer,
-        CONFIG.OCR_LANGUAGE,
-        {
-          logger: m => {
-            if (m.status === 'recognizing text') {
-              logger.debug(`OCR progress: ${Math.round(m.progress * 100)}%`);
-            }
-          }
-        }
-      );
-      
-      return text;
-    } catch (error) {
-      logger.error(`❌ Tesseract OCR failed:`, error);
-      throw error;
-    }
-  }
-
   formatOCRResult(extractedText, filename) {
     const cleanText = extractedText
       .replace(/\s+/g, ' ')
       .replace(/\n+/g, '\n')
       .trim();
     
-    const result = `--- RESUME TEXT (OCR EXTRACTED) ---
+    const result = `--- RESUME TEXT (GOOGLE DRIVE OCR) ---
 Original File: ${filename}
-Extraction Method: ${cleanText.length > 100 ? 'Direct PDF' : 'OCR'}
+Extraction Method: Google Drive OCR
 Extracted Characters: ${cleanText.length}
 Processing Date: ${new Date().toISOString()}
 

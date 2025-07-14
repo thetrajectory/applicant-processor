@@ -1,15 +1,14 @@
-import { createLogger } from './utils/logger.js';
-import { GmailService } from './services/gmail.js';
+import fs from 'fs/promises';
+import { CONFIG } from './config.js';
 import { DriveService } from './services/drive.js';
+import { GmailService } from './services/gmail.js';
+import { OpenAIService } from './services/openai.js';
 import { SheetsService } from './services/sheets.js';
 import { SupabaseService } from './services/supabase.js';
-import { OpenAIService } from './services/openai.js';
+import { createLogger } from './utils/logger.js';
 import { OCRService } from './utils/ocr.js';
 import { EmailParser } from './utils/parser.js';
 import { StorageManager } from './utils/storage.js';
-import { CONFIG } from './config.js';
-import fs from 'fs/promises';
-import path from 'path';
 
 const logger = createLogger();
 
@@ -152,43 +151,49 @@ class ApplicantProcessor {
     
     // Process attachments with OCR
     let resumeText = null;
-    let resumeDriveLink = null;
-    
-    if (message.attachments?.length > 0) {
-      const pdfAttachment = message.attachments.find(att => 
-        att.mimeType === 'application/pdf'
+let resumeDriveLink = null;
+
+if (message.attachments?.length > 0) {
+  const pdfAttachment = message.attachments.find(att => 
+    att.mimeType === 'application/pdf'
+  );
+  
+  if (pdfAttachment) {
+    try {
+      logger.info(`📄 Processing PDF attachment: ${pdfAttachment.filename}`);
+      
+      // Download attachment
+      const attachmentData = await this.gmail.downloadAttachment(
+        message.id, 
+        pdfAttachment.attachmentId
       );
       
-      if (pdfAttachment) {
-        try {
-          logger.info(`📄 Processing PDF attachment: ${pdfAttachment.filename}`);
-          
-          // Download attachment
-          const attachmentData = await this.gmail.downloadAttachment(
-            message.id, 
-            pdfAttachment.attachmentId
-          );
-          
-          // Process with OCR
-          const ocrResult = await this.ocr.processPDF(attachmentData, pdfAttachment.filename);
-          resumeText = ocrResult.text;
-          this.stats.ocrProcessed++;
-          
-          // Upload to Drive
-          resumeDriveLink = await this.drive.uploadFile(
-            attachmentData,
-            `${parsedData.name}_${parsedData.project_id || 'CV'}.pdf`,
-            pdfAttachment.mimeType
-          );
-          
-          logger.info(`📁 PDF uploaded to Drive: ${resumeDriveLink}`);
-          
-        } catch (error) {
-          logger.error(`❌ Error processing PDF attachment:`, error);
-          resumeText = `OCR processing failed: ${error.message}`;
-        }
+      // Upload to Drive first (for permanent storage)
+      resumeDriveLink = await this.drive.uploadFile(
+        attachmentData,
+        `${parsedData.name}_${parsedData.project_id || 'CV'}.pdf`,
+        pdfAttachment.mimeType
+      );
+      
+      logger.info(`📁 PDF uploaded to Drive: ${resumeDriveLink}`);
+      
+      // Process with Google Drive OCR
+      if (CONFIG.ENABLE_OCR) {
+        logger.info(`🔍 Processing with Google Drive OCR...`);
+        const ocrResult = await this.drive.convertPDFToText(attachmentData, pdfAttachment.filename);
+        resumeText = ocrResult.text;
+        this.stats.ocrProcessed++;
+        logger.info(`📖 OCR completed: ${ocrResult.length} characters extracted`);
+      } else {
+        resumeText = `OCR disabled - PDF stored at: ${resumeDriveLink}`;
       }
+      
+    } catch (error) {
+      logger.error(`❌ Error processing PDF attachment:`, error);
+      resumeText = `PDF processing failed: ${error.message}`;
     }
+  }
+}
     
     // Extract contact info with GPT
     let contactInfo = { mobile_number: null, email: null, linkedin_url: null };
