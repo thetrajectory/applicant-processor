@@ -57,14 +57,35 @@ class ApplicantProcessor {
       { name: 'Gmail', test: () => this.gmail.testConnection() },
       { name: 'OpenAI', test: () => this.openai.testConnection() }
     ];
-
+  
     for (const { name, test } of tests) {
       try {
         await test();
         logger.info(`✅ ${name} connection successful`);
       } catch (error) {
-        logger.error(`❌ ${name} connection failed:`, error.message);
-        throw new Error(`${name} service unavailable`);
+        logger.error(`❌ ${name} connection failed:`);
+        logger.error(`   Error message: ${error.message}`);
+        logger.error(`   Error code: ${error.code || 'N/A'}`);
+        logger.error(`   Error status: ${error.status || 'N/A'}`);
+        
+        if (error.details) {
+          logger.error(`   Error details:`, error.details);
+        }
+        
+        if (error.stack) {
+          logger.error(`   Stack trace: ${error.stack}`);
+        }
+        
+        // Provide specific guidance for common issues
+        if (name === 'Google Sheets') {
+          logger.error('🔧 Google Sheets troubleshooting:');
+          logger.error('   1. Check if GOOGLE_SHEET_ID is correct');
+          logger.error('   2. Ensure sheet is shared with service account');
+          logger.error('   3. Verify domain-wide delegation is configured');
+          logger.error('   4. Check service account permissions');
+        }
+        
+        throw new Error(`${name} service unavailable: ${error.message}`);
       }
     }
   }
