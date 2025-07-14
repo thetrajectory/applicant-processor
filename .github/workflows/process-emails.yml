@@ -10,6 +10,11 @@ on:
         required: false
         default: "false"
         type: boolean
+      run_health_check:
+        description: "Run health check only"
+        required: false
+        default: "false"
+        type: boolean
   push:
     branches: [main]
     paths: ["src/**"]
@@ -37,28 +42,33 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
-      - name: 🔍 Debug Google Credentials Raw
+      - name: 🔍 Debug Credentials
+        if: github.event.inputs.debug_mode == 'true'
         env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-        run: |
-          echo "=== GOOGLE CREDENTIALS DEBUG ==="
-          echo "Length: ${#GOOGLE_CREDENTIALS}"
-          echo "First 200 chars: ${GOOGLE_CREDENTIALS:0:200}"
-          echo "Last 200 chars: ${GOOGLE_CREDENTIALS: -200}"
-          echo ""
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
+        run: node src/debug-credentials.js
 
-          # Try to parse as JSON
-          if echo "$GOOGLE_CREDENTIALS" | jq . > /dev/null 2>&1; then
-            echo "✅ Valid JSON detected"
-            echo "client_email: $(echo "$GOOGLE_CREDENTIALS" | jq -r '.client_email // "MISSING"')"
-            echo "project_id: $(echo "$GOOGLE_CREDENTIALS" | jq -r '.project_id // "MISSING"')"
-            echo "client_id: $(echo "$GOOGLE_CREDENTIALS" | jq -r '.client_id // "MISSING"')"
-          else
-            echo "❌ Invalid JSON format"
-            echo "This explains why client_email is undefined!"
-          fi
+      - name: 🏥 Health Check Only
+        if: github.event.inputs.run_health_check == 'true'
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
+          DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
+        run: node src/health-check.js
 
       - name: 🚀 Process Applicant Emails
+        if: github.event.inputs.run_health_check != 'true'
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
