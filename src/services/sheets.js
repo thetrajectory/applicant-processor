@@ -15,26 +15,69 @@ export class SheetsService {
           'https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive.file'
         ],
-        subject: CONFIG.GMAIL_USER_EMAIL
+        subject: CONFIG.GMAIL_USER_EMAIL // Important: This impersonates the user
       });
       
       this.sheets = google.sheets({ version: 'v4' });
       
+      logger.info('📊 Google Sheets service initialized');
+      
     } catch (error) {
+      logger.error('❌ Sheets service initialization failed:', error);
       throw new Error(`Sheets service initialization failed: ${error.message}`);
     }
   }
 
   async testConnection() {
     try {
+      logger.info('🔍 Testing Google Sheets connection...');
+      
+      // Get authenticated client
       const auth = await this.auth.getClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
-      await sheets.spreadsheets.get({ 
+      logger.info(`📋 Testing access to sheet: ${CONFIG.GOOGLE_SHEET_ID}`);
+      
+      // Test basic sheet access
+      const response = await sheets.spreadsheets.get({ 
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID 
       });
+      
+      logger.info(`✅ Sheet access successful: "${response.data.properties.title}"`);
+      
+      // Test if we can read data
+      const readTest = await sheets.spreadsheets.values.get({
+        spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
+        range: 'A1:Z1' // Try to read first row
+      });
+      
+      logger.info(`📖 Sheet read test successful: ${readTest.data.values ? readTest.data.values.length : 0} columns`);
+      
       return true;
     } catch (error) {
+      logger.error('❌ Google Sheets connection test details:', {
+        message: error.message,
+        code: error.code,
+        status: error.status,
+        details: error.details
+      });
+      
+      // Provide specific error guidance
+      if (error.code === 403) {
+        logger.error('🚨 Permission denied - Check:');
+        logger.error('   1. Sheet is shared with service account email');
+        logger.error('   2. Service account has Editor permissions');
+        logger.error('   3. Domain-wide delegation is configured');
+      } else if (error.code === 404) {
+        logger.error('🚨 Sheet not found - Check:');
+        logger.error('   1. GOOGLE_SHEET_ID is correct');
+        logger.error('   2. Sheet exists and is accessible');
+      } else if (error.message.includes('subject')) {
+        logger.error('🚨 Impersonation failed - Check:');
+        logger.error('   1. GMAIL_USER_EMAIL is correct');
+        logger.error('   2. Domain-wide delegation includes this user');
+      }
+      
       throw new Error(`Sheets connection test failed: ${error.message}`);
     }
   }
@@ -59,6 +102,8 @@ export class SheetsService {
       });
       
       if (!headerRange.data.values || headerRange.data.values.length === 0) {
+        logger.info('📊 Adding headers to sheet...');
+        
         // Add headers
         await sheets.spreadsheets.values.update({
           spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
@@ -100,9 +145,12 @@ export class SheetsService {
         });
         
         logger.info('📊 Sheet headers initialized');
+      } else {
+        logger.info('📊 Sheet headers already exist');
       }
       
     } catch (error) {
+      logger.error('❌ Sheet initialization failed:', error);
       throw new Error(`Sheet initialization failed: ${error.message}`);
     }
   }
@@ -144,6 +192,7 @@ export class SheetsService {
       logger.info(`📊 Applicant added to sheet: ${applicantData.name}`);
       
     } catch (error) {
+      logger.error('❌ Sheet append failed:', error);
       throw new Error(`Sheet append failed: ${error.message}`);
     }
   }
@@ -162,7 +211,7 @@ export class SheetsService {
       return Math.max(0, count);
       
     } catch (error) {
-      logger.error(`Error getting applicant count:`, error);
+      logger.error(`❌ Error getting applicant count:`, error);
       return 0;
     }
   }
