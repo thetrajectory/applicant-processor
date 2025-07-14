@@ -54,8 +54,8 @@ class ApplicantProcessor {
       { name: 'Supabase', test: () => this.supabase.testConnection() },
       { name: 'Google Sheets', test: () => this.sheets.testConnection() },
       { name: 'Google Drive', test: () => this.drive.testConnection() },
-      { name: 'Gmail', test: () => this.gmail.testConnection() },
       { name: 'OpenAI', test: () => this.openai.testConnection() }
+      // Gmail test removed - will be tested during actual email processing
     ];
   
     for (const { name, test } of tests) {
@@ -63,48 +63,51 @@ class ApplicantProcessor {
         await test();
         logger.info(`✅ ${name} connection successful`);
       } catch (error) {
-        logger.error(`❌ ${name} connection failed:`);
-        logger.error(`   Error message: ${error.message}`);
-        logger.error(`   Error code: ${error.code || 'N/A'}`);
-        logger.error(`   Error status: ${error.status || 'N/A'}`);
-        
-        if (error.details) {
-          logger.error(`   Error details:`, error.details);
-        }
-        
-        if (error.stack) {
-          logger.error(`   Stack trace: ${error.stack}`);
-        }
-        
-        // Provide specific guidance for common issues
-        if (name === 'Google Sheets') {
-          logger.error('🔧 Google Sheets troubleshooting:');
-          logger.error('   1. Check if GOOGLE_SHEET_ID is correct');
-          logger.error('   2. Ensure sheet is shared with service account');
-          logger.error('   3. Verify domain-wide delegation is configured');
-          logger.error('   4. Check service account permissions');
-        }
-        
+        logger.error(`❌ ${name} connection failed: ${error.message}`);
         throw new Error(`${name} service unavailable: ${error.message}`);
       }
     }
+    
+    // Add informational message about Gmail
+    logger.info('📧 Gmail connection will be tested during email processing');
+    logger.info('   If Gmail fails, you\'ll see errors in the email processing step');
   }
 
   async processEmails() {
     try {
       logger.info('🔥 Starting email processing cycle...');
       
-      // Get latest unprocessed emails
-      const messages = await this.gmail.getLatestEmails(CONFIG.BATCH_SIZE);
-      this.stats.emailsFound = messages.length;
+      // Test Gmail connection here during actual usage
+      let messages = [];
+      try {
+        logger.info('📧 Attempting to fetch emails from Gmail...');
+        messages = await this.gmail.getLatestEmails(CONFIG.BATCH_SIZE);
+        logger.info(`✅ Gmail connection successful - found ${messages.length} emails`);
+      } catch (gmailError) {
+        logger.error('❌ Gmail connection failed during email fetch:');
+        logger.error(`   Error: ${gmailError.message}`);
+        logger.error(`   Code: ${gmailError.code || 'N/A'}`);
+        
+        // Provide specific guidance
+        if (gmailError.code === 403) {
+          logger.error('🔧 Gmail Permission Fix Required:');
+          logger.error('   1. Configure domain-wide delegation in admin.google.com');
+          logger.error('   2. Add Gmail scopes to service account');
+          logger.error('   3. Ensure GMAIL_USER_EMAIL is Google Workspace (not @gmail.com)');
+        }
+        
+        logger.warn('⚠️ Skipping email processing due to Gmail connectivity issues');
+        return; // Exit gracefully instead of crashing
+      }
       
-      logger.info(`📧 Found ${messages.length} emails to analyze`);
+      this.stats.emailsFound = messages.length;
       
       if (messages.length === 0) {
         logger.info('📭 No new emails found');
         return;
       }
-
+  
+      // Continue with normal processing...
       for (const message of messages) {
         try {
           await this.processMessage(message);
