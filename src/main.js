@@ -6,35 +6,34 @@ import { OpenAIService } from './services/openai.js';
 import { SheetsService } from './services/sheets.js';
 import { SupabaseService } from './services/supabase.js';
 import { createLogger } from './utils/logger.js';
-import { OCRService } from './utils/ocr.js';
 import { EmailParser } from './utils/parser.js';
 import { StorageManager } from './utils/storage.js';
 
 const logger = createLogger();
 
 class ApplicantProcessor {
-  constructor() {
-    this.gmail = new GmailService();
-    this.drive = new DriveService();
-    this.sheets = new SheetsService();
-    this.supabase = new SupabaseService();
-    this.openai = new OpenAIService();
-    this.ocr = new OCRService();
-    this.parser = new EmailParser();
-    this.storage = new StorageManager();
-    
-    this.stats = {
-      startTime: new Date(),
-      emailsFound: 0,
-      emailsProcessed: 0,
-      emailsSkipped: 0,
-      emailsErrored: 0,
-      applicantsCreated: 0,
-      duplicatesFound: 0,
-      ocrProcessed: 0,
-      errors: []
-    };
-  }
+    constructor() {
+      this.gmail = new GmailService();
+      this.drive = new DriveService();
+      this.sheets = new SheetsService();
+      this.supabase = new SupabaseService();
+      this.openai = new OpenAIService();
+      // Removed: this.ocr = new OCRService();
+      this.parser = new EmailParser();
+      this.storage = new StorageManager();
+      
+      this.stats = {
+        startTime: new Date(),
+        emailsFound: 0,
+        emailsProcessed: 0,
+        emailsSkipped: 0,
+        emailsErrored: 0,
+        applicantsCreated: 0,
+        duplicatesFound: 0,
+        ocrProcessed: 0,
+        errors: []
+      };
+    }
 
   async initialize() {
     logger.info('🚀 Initializing Applicant Processor...');
@@ -110,141 +109,154 @@ class ApplicantProcessor {
   }
 
   async processMessage(message) {
-    const startTime = Date.now();
-    logger.info(`🔄 Processing: "${message.subject}" (${message.id})`);
-    
-    // Check if already processed
-    if (await this.storage.isProcessed(message.id)) {
-      logger.info(`⏭️ Already processed: ${message.id}`);
-      this.stats.emailsSkipped++;
-      return;
-    }
-    
-    // Check if LinkedIn application
-    if (!this.parser.isLinkedInApplication(message)) {
-      logger.info(`📧 Not a LinkedIn application: ${message.id}`);
-      await this.storage.markProcessed(message.id, 'not_linkedin');
-      this.stats.emailsSkipped++;
-      return;
-    }
-    
-    // Check email age
-    const emailAge = (new Date() - message.date) / (1000 * 60 * 60 * 24);
-    if (emailAge > CONFIG.MAX_EMAIL_AGE_DAYS) {
-      logger.info(`⏳ Email too old (${emailAge.toFixed(1)} days): ${message.id}`);
-      await this.storage.markProcessed(message.id, 'too_old');
-      this.stats.emailsSkipped++;
-      return;
-    }
-    
-    // Parse LinkedIn application data
-    const parsedData = this.parser.parseLinkedInApplication(message);
-    
-    if (!parsedData.name?.trim()) {
-      logger.warn(`⚠️ No applicant name found: ${message.id}`);
-      await this.storage.markProcessed(message.id, 'no_name');
-      this.stats.emailsSkipped++;
-      return;
-    }
-    
-    logger.info(`👤 Processing applicant: ${parsedData.name}`);
-    
-    // Process attachments with OCR
-    let resumeText = null;
-let resumeDriveLink = null;
-
-if (message.attachments?.length > 0) {
-  const pdfAttachment = message.attachments.find(att => 
-    att.mimeType === 'application/pdf'
-  );
+  const startTime = Date.now();
+  logger.info(`🔄 Processing: "${message.subject}" (${message.id})`);
   
-  if (pdfAttachment) {
-    try {
-      logger.info(`📄 Processing PDF attachment: ${pdfAttachment.filename}`);
-      
-      // Download attachment
-      const attachmentData = await this.gmail.downloadAttachment(
-        message.id, 
-        pdfAttachment.attachmentId
-      );
-      
-      // Upload to Drive first (for permanent storage)
-      resumeDriveLink = await this.drive.uploadFile(
-        attachmentData,
-        `${parsedData.name}_${parsedData.project_id || 'CV'}.pdf`,
-        pdfAttachment.mimeType
-      );
-      
-      logger.info(`📁 PDF uploaded to Drive: ${resumeDriveLink}`);
-      
-      // Process with Google Drive OCR
-      if (CONFIG.ENABLE_OCR) {
-        logger.info(`🔍 Processing with Google Drive OCR...`);
-        const ocrResult = await this.drive.convertPDFToText(attachmentData, pdfAttachment.filename);
-        resumeText = ocrResult.text;
-        this.stats.ocrProcessed++;
-        logger.info(`📖 OCR completed: ${ocrResult.length} characters extracted`);
-      } else {
-        resumeText = `OCR disabled - PDF stored at: ${resumeDriveLink}`;
+  // Check if already processed
+  if (await this.storage.isProcessed(message.id)) {
+    logger.info(`⏭️ Already processed: ${message.id}`);
+    this.stats.emailsSkipped++;
+    return;
+  }
+  
+  // Check if LinkedIn application
+  if (!this.parser.isLinkedInApplication(message)) {
+    logger.info(`📧 Not a LinkedIn application: ${message.id}`);
+    await this.storage.markProcessed(message.id, 'not_linkedin');
+    this.stats.emailsSkipped++;
+    return;
+  }
+  
+  // Check email age
+  const emailAge = (new Date() - message.date) / (1000 * 60 * 60 * 24);
+  if (emailAge > CONFIG.MAX_EMAIL_AGE_DAYS) {
+    logger.info(`⏳ Email too old (${emailAge.toFixed(1)} days): ${message.id}`);
+    await this.storage.markProcessed(message.id, 'too_old');
+    this.stats.emailsSkipped++;
+    return;
+  }
+  
+  // Parse LinkedIn application data
+  const parsedData = this.parser.parseLinkedInApplication(message);
+  
+  if (!parsedData.name?.trim()) {
+    logger.warn(`⚠️ No applicant name found: ${message.id}`);
+    await this.storage.markProcessed(message.id, 'no_name');
+    this.stats.emailsSkipped++;
+    return;
+  }
+  
+  logger.info(`👤 Processing applicant: ${parsedData.name}`);
+  
+  // Process attachments - Upload to Drive and OCR
+  let resumeText = null;
+  let resumeDriveLink = null;
+  
+  if (message.attachments?.length > 0) {
+    const pdfAttachment = message.attachments.find(att => 
+      att.mimeType === 'application/pdf'
+    );
+    
+    if (pdfAttachment) {
+      try {
+        logger.info(`📄 Processing PDF attachment: ${pdfAttachment.filename}`);
+        
+        // Download attachment
+        const attachmentData = await this.gmail.downloadAttachment(
+          message.id, 
+          pdfAttachment.attachmentId
+        );
+        
+        // Upload to Drive for permanent storage
+        resumeDriveLink = await this.drive.uploadFile(
+          attachmentData,
+          `${parsedData.name}_${parsedData.project_id || 'CV'}.pdf`,
+          pdfAttachment.mimeType
+        );
+        
+        logger.info(`📁 PDF uploaded to Drive: ${resumeDriveLink}`);
+        
+        // Process with Google Drive OCR (if enabled)
+        if (CONFIG.ENABLE_OCR) {
+          try {
+            logger.info(`🔍 Processing with Google Drive OCR...`);
+            const ocrResult = await this.drive.convertPDFToText(attachmentData, pdfAttachment.filename);
+            resumeText = ocrResult.text;
+            this.stats.ocrProcessed++;
+            logger.info(`📖 OCR completed: ${ocrResult.length} characters extracted`);
+          } catch (ocrError) {
+            logger.error(`❌ OCR processing failed:`, ocrError);
+            resumeText = `OCR processing failed: ${ocrError.message}\nPDF stored at: ${resumeDriveLink}`;
+          }
+        } else {
+          logger.info(`📄 OCR disabled - PDF stored without text extraction`);
+          resumeText = `OCR disabled - PDF stored at: ${resumeDriveLink}`;
+        }
+        
+      } catch (error) {
+        logger.error(`❌ Error processing PDF attachment:`, error);
+        resumeText = `PDF processing failed: ${error.message}`;
       }
-      
-    } catch (error) {
-      logger.error(`❌ Error processing PDF attachment:`, error);
-      resumeText = `PDF processing failed: ${error.message}`;
+    } else {
+      logger.info(`📎 No PDF attachments found (${message.attachments.length} attachments total)`);
     }
   }
-}
-    
-    // Extract contact info with GPT
-    let contactInfo = { mobile_number: null, email: null, linkedin_url: null };
-    
-    if (resumeText) {
-      try {
-        logger.info(`🤖 Extracting contact info with GPT...`);
-        contactInfo = await this.openai.extractContactInfo(resumeText);
-        logger.info(`📞 Contact info extracted:`, contactInfo);
-      } catch (error) {
-        logger.error(`❌ GPT extraction failed:`, error);
-      }
+  
+  // Extract contact info with GPT
+  let contactInfo = { mobile_number: null, email: null, linkedin_url: null };
+  
+  if (resumeText && CONFIG.ENABLE_GPT) {
+    try {
+      logger.info(`🤖 Extracting contact info with GPT...`);
+      contactInfo = await this.openai.extractContactInfo(resumeText);
+      logger.info(`📞 Contact info extracted:`, contactInfo);
+    } catch (error) {
+      logger.error(`❌ GPT extraction failed:`, error);
     }
-    
-    // Determine primary email
-    const applicantEmail = contactInfo.email || this.extractEmailFromSender(message);
-    
-    if (!applicantEmail) {
-      logger.warn(`⚠️ No email found for applicant: ${parsedData.name}`);
-      await this.storage.markProcessed(message.id, 'no_email');
-      this.stats.emailsSkipped++;
-      return;
-    }
-    
-    // Check for duplicates
-    if (await this.supabase.emailExists(applicantEmail)) {
-      logger.info(`🔄 Duplicate email found: ${applicantEmail}`);
-      await this.storage.markProcessed(message.id, 'duplicate_email');
-      this.stats.duplicatesFound++;
-      return;
-    }
-    
-    // Prepare complete applicant data
-    const applicantData = {
-      email: applicantEmail,
-      name: parsedData.name.trim(),
-      title: parsedData.title || null,
-      location: parsedData.location || null,
-      expected_compensation: parsedData.expected_compensation || null,
-      project_id: parsedData.project_id || null,
-      screening_questions: parsedData.screening_questions || null,
-      resume_raw_text: resumeText || null,
-      resume_drive_link: resumeDriveLink || null,
-      mobile_number: contactInfo.mobile_number || null,
-      linkedin_url: contactInfo.linkedin_url || null,
-      processed_at: new Date().toISOString(),
-      source_message_id: message.id,
-      processing_time_ms: Date.now() - startTime
-    };
-    
-    // Store in both Sheets and Supabase
+  } else if (!CONFIG.ENABLE_GPT) {
+    logger.info(`🤖 GPT extraction disabled`);
+  } else {
+    logger.info(`🤖 No resume text available for GPT extraction`);
+  }
+  
+  // Determine primary email
+  const applicantEmail = contactInfo.email || this.extractEmailFromSender(message);
+  
+  if (!applicantEmail) {
+    logger.warn(`⚠️ No email found for applicant: ${parsedData.name}`);
+    await this.storage.markProcessed(message.id, 'no_email');
+    this.stats.emailsSkipped++;
+    return;
+  }
+  
+  // Check for duplicates
+  if (await this.supabase.emailExists(applicantEmail)) {
+    logger.info(`🔄 Duplicate email found: ${applicantEmail}`);
+    await this.storage.markProcessed(message.id, 'duplicate_email');
+    this.stats.duplicatesFound++;
+    return;
+  }
+  
+  // Prepare complete applicant data
+  const applicantData = {
+    email: applicantEmail,
+    name: parsedData.name.trim(),
+    title: parsedData.title || null,
+    location: parsedData.location || null,
+    expected_compensation: parsedData.expected_compensation || null,
+    project_id: parsedData.project_id || null,
+    screening_questions: parsedData.screening_questions || null,
+    resume_raw_text: resumeText || null,
+    resume_drive_link: resumeDriveLink || null,
+    mobile_number: contactInfo.mobile_number || null,
+    linkedin_url: contactInfo.linkedin_url || null,
+    processed_at: new Date().toISOString(),
+    source_message_id: message.id,
+    processing_time_ms: Date.now() - startTime
+  };
+  
+  // Store in both Sheets and Supabase (unless dry run)
+  if (!CONFIG.DRY_RUN) {
     await Promise.all([
       this.sheets.appendApplicant(applicantData),
       this.supabase.createApplicant(applicantData)
@@ -252,13 +264,17 @@ if (message.attachments?.length > 0) {
     
     // Mark as processed
     await this.storage.markProcessed(message.id, 'success');
-    
-    this.stats.emailsProcessed++;
-    this.stats.applicantsCreated++;
-    
-    const processingTime = Date.now() - startTime;
-    logger.info(`✅ Successfully processed: ${parsedData.name} (${applicantEmail}) in ${processingTime}ms`);
+  } else {
+    logger.info('🧪 DRY RUN: Would store data:', JSON.stringify(applicantData, null, 2));
+    logger.info('🧪 DRY RUN: Would mark message as processed');
   }
+  
+  this.stats.emailsProcessed++;
+  this.stats.applicantsCreated++;
+  
+  const processingTime = Date.now() - startTime;
+  logger.info(`✅ Successfully processed: ${parsedData.name} (${applicantEmail}) in ${processingTime}ms`);
+}
 
   extractEmailFromSender(message) {
     const match = message.from.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);

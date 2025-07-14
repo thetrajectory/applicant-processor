@@ -1,34 +1,23 @@
 import { createLogger } from './logger.js';
-import { CONFIG } from '../config.js';
 
 const logger = createLogger();
 
 export class OCRService {
   constructor() {
-    // This service now relies entirely on Google Drive's OCR capabilities
-    // which are accessed through the DriveService
+    // This service is now a placeholder - all OCR is handled by Google Drive
+    logger.info('📄 OCR Service initialized - using Google Drive OCR only');
   }
 
   async processPDF(pdfBuffer, filename) {
-    try {
-      logger.info(`📄 Processing PDF with Google Drive OCR: ${filename}`);
-      
-      // This method now serves as a wrapper/fallback
-      // The actual OCR processing is done in DriveService.convertPDFToText()
-      
-      const result = this.formatOCRResult(
-        'PDF processing requires Google Drive OCR - see DriveService.convertPDFToText()',
-        filename
-      );
-      
-      logger.warn('⚠️ Direct OCR processing called - use DriveService.convertPDFToText() instead');
-      
-      return result;
-      
-    } catch (error) {
-      logger.error(`❌ OCR processing failed for ${filename}:`, error);
-      throw new Error(`OCR processing failed: ${error.message}`);
-    }
+    // This method is deprecated - OCR is now handled entirely by Google Drive
+    logger.warn('⚠️ OCRService.processPDF is deprecated - use DriveService.convertPDFToText instead');
+    
+    return {
+      text: `PDF file: ${filename} - processed via Google Drive OCR`,
+      originalText: '',
+      length: 0,
+      filename
+    };
   }
 
   formatOCRResult(extractedText, filename) {
