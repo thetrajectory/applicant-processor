@@ -7,20 +7,26 @@ const logger = createLogger();
 export class SheetsService {
   constructor() {
     try {
-      const credentials = JSON.parse(CONFIG.GOOGLE_CREDENTIALS);
+      logger.info('📊 Initializing Google Sheets service...');
+      
+      // Use the already parsed credentials from CONFIG
+      const credentials = CONFIG.GOOGLE_CREDENTIALS;
+      
+      logger.info(`   Service Account: ${credentials.client_email}`);
+      logger.info(`   Project: ${credentials.project_id}`);
       
       this.auth = new google.auth.GoogleAuth({
-        credentials,
+        credentials, // Use the already parsed object
         scopes: [
           'https://www.googleapis.com/auth/spreadsheets',
           'https://www.googleapis.com/auth/drive.file'
         ],
-        subject: CONFIG.GMAIL_USER_EMAIL // Important: This impersonates the user
+        subject: CONFIG.GMAIL_USER_EMAIL
       });
       
       this.sheets = google.sheets({ version: 'v4' });
       
-      logger.info('📊 Google Sheets service initialized');
+      logger.info('📊 Google Sheets service initialized successfully');
       
     } catch (error) {
       logger.error('❌ Sheets service initialization failed:', error);
@@ -30,128 +36,25 @@ export class SheetsService {
 
   async testConnection() {
     try {
-      logger.info('🔍 Testing Google Sheets connection...');
-      
-      // Get authenticated client
       const auth = await this.auth.getClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
-      logger.info(`📋 Testing access to sheet: ${CONFIG.GOOGLE_SHEET_ID}`);
-      
-      // Test basic sheet access
       const response = await sheets.spreadsheets.get({ 
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID 
       });
       
       logger.info(`✅ Sheet access successful: "${response.data.properties.title}"`);
       
-      // Test if we can read data
       const readTest = await sheets.spreadsheets.values.get({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-        range: 'A1:Z1' // Try to read first row
+        range: 'A1:Z1'
       });
       
       logger.info(`📖 Sheet read test successful: ${readTest.data.values ? readTest.data.values.length : 0} columns`);
       
       return true;
     } catch (error) {
-      logger.error('❌ Google Sheets connection test details:', {
-        message: error.message,
-        code: error.code,
-        status: error.status,
-        details: error.details
-      });
-      
-      // Provide specific error guidance
-      if (error.code === 403) {
-        logger.error('🚨 Permission denied - Check:');
-        logger.error('   1. Sheet is shared with service account email');
-        logger.error('   2. Service account has Editor permissions');
-        logger.error('   3. Domain-wide delegation is configured');
-      } else if (error.code === 404) {
-        logger.error('🚨 Sheet not found - Check:');
-        logger.error('   1. GOOGLE_SHEET_ID is correct');
-        logger.error('   2. Sheet exists and is accessible');
-      } else if (error.message.includes('subject')) {
-        logger.error('🚨 Impersonation failed - Check:');
-        logger.error('   1. GMAIL_USER_EMAIL is correct');
-        logger.error('   2. Domain-wide delegation includes this user');
-      }
-      
       throw new Error(`Sheets connection test failed: ${error.message}`);
-    }
-  }
-
-  async initializeSheet() {
-    try {
-      const auth = await this.auth.getClient();
-      const sheets = google.sheets({ version: 'v4', auth });
-      
-      // Get sheet info
-      const sheetInfo = await sheets.spreadsheets.get({
-        spreadsheetId: CONFIG.GOOGLE_SHEET_ID
-      });
-      
-      const sheet = sheetInfo.data.sheets[0];
-      const sheetId = sheet.properties.sheetId;
-      
-      // Check if headers exist
-      const headerRange = await sheets.spreadsheets.values.get({
-        spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-        range: 'A1:Z1'
-      });
-      
-      if (!headerRange.data.values || headerRange.data.values.length === 0) {
-        logger.info('📊 Adding headers to sheet...');
-        
-        // Add headers
-        await sheets.spreadsheets.values.update({
-          spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-          range: 'A1',
-          valueInputOption: 'RAW',
-          requestBody: {
-            values: [CONFIG.SHEET_HEADERS]
-          }
-        });
-        
-        // Format headers
-        await sheets.spreadsheets.batchUpdate({
-          spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-          requestBody: {
-            requests: [
-              {
-                repeatCell: {
-                  range: {
-                    sheetId,
-                    startRowIndex: 0,
-                    endRowIndex: 1,
-                    startColumnIndex: 0,
-                    endColumnIndex: CONFIG.SHEET_HEADERS.length
-                  },
-                  cell: {
-                    userEnteredFormat: {
-                      backgroundColor: { red: 0.26, green: 0.52, blue: 0.96 },
-                      textFormat: { 
-                        foregroundColor: { red: 1, green: 1, blue: 1 },
-                        bold: true 
-                      }
-                    }
-                  },
-                  fields: 'userEnteredFormat(backgroundColor,textFormat)'
-                }
-              }
-            ]
-          }
-        });
-        
-        logger.info('📊 Sheet headers initialized');
-      } else {
-        logger.info('📊 Sheet headers already exist');
-      }
-      
-    } catch (error) {
-      logger.error('❌ Sheet initialization failed:', error);
-      throw new Error(`Sheet initialization failed: ${error.message}`);
     }
   }
 
@@ -160,10 +63,6 @@ export class SheetsService {
       const auth = await this.auth.getClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
-      // Ensure headers exist
-      await this.initializeSheet();
-      
-      // Prepare row data in correct order
       const rowData = [
         applicantData.name || '',
         applicantData.title || '',
@@ -192,7 +91,6 @@ export class SheetsService {
       logger.info(`📊 Applicant added to sheet: ${applicantData.name}`);
       
     } catch (error) {
-      logger.error('❌ Sheet append failed:', error);
       throw new Error(`Sheet append failed: ${error.message}`);
     }
   }
@@ -207,11 +105,11 @@ export class SheetsService {
         range: 'A:A'
       });
       
-      const count = response.data.values ? response.data.values.length - 1 : 0; // Subtract header row
+      const count = response.data.values ? response.data.values.length - 1 : 0;
       return Math.max(0, count);
       
     } catch (error) {
-      logger.error(`❌ Error getting applicant count:`, error);
+      logger.error(`Error getting applicant count:`, error);
       return 0;
     }
   }
