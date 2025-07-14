@@ -1,0 +1,28 @@
+{
+    "name": "applicant-processor",
+    "version": "1.0.0",
+    "description": "Automated applicant processing system using GitHub Actions",
+    "type": "module",
+    "main": "src/main.js",
+    "scripts": {
+      "start": "node src/main.js",
+      "test": "node src/test.js",
+      "dev": "node --watch src/main.js"
+    },
+    "dependencies": {
+      "googleapis": "^128.0.0",
+      "openai": "^4.28.0",
+      "@supabase/supabase-js": "^2.39.0",
+      "pdf-parse": "^1.1.1",
+      "tesseract.js": "^5.0.4",
+      "winston": "^3.11.0",
+      "node-fetch": "^3.3.2",
+      "form-data": "^4.0.0"
+    },
+    "engines": {
+      "node": ">=18.0.0"
+    },
+    "keywords": ["automation", "gmail", "applicant-tracking", "github-actions"],
+    "author": "Your Name",
+    "license": "MIT"
+  }
