@@ -55,7 +55,7 @@ class ApplicantProcessor {
       { name: 'Google Sheets', test: () => this.sheets.testConnection() },
       { name: 'Google Drive', test: () => this.drive.testConnection() },
       { name: 'OpenAI', test: () => this.openai.testConnection() }
-      // Gmail test removed - will be tested during actual email processing
+      // Gmail test temporarily removed - will test during email processing
     ];
   
     for (const { name, test } of tests) {
@@ -68,9 +68,7 @@ class ApplicantProcessor {
       }
     }
     
-    // Add informational message about Gmail
-    logger.info('📧 Gmail connection will be tested during email processing');
-    logger.info('   If Gmail fails, you\'ll see errors in the email processing step');
+    logger.info('📧 Gmail will be tested during email processing');
   }
 
   async processEmails() {
