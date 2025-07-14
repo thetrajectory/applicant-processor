@@ -7,10 +7,24 @@ const logger = createLogger();
 export class DriveService {
   constructor() {
     try {
-      const credentials = JSON.parse(CONFIG.GOOGLE_CREDENTIALS);
+      logger.info('📁 Initializing Google Drive service...');
+      
+      // Use the already parsed credentials from CONFIG
+      const credentials = CONFIG.GOOGLE_CREDENTIALS;
+      
+      if (!credentials) {
+        throw new Error('Google credentials not available from CONFIG');
+      }
+      
+      if (!credentials.client_email) {
+        throw new Error('Google credentials missing client_email field');
+      }
+      
+      logger.info(`   Service Account: ${credentials.client_email}`);
+      logger.info(`   Project: ${credentials.project_id}`);
       
       this.auth = new google.auth.GoogleAuth({
-        credentials,
+        credentials, // Use the already parsed object, not raw JSON
         scopes: [
           'https://www.googleapis.com/auth/drive.file',
           'https://www.googleapis.com/auth/drive'
@@ -20,19 +34,54 @@ export class DriveService {
       
       this.drive = google.drive({ version: 'v3' });
       
+      logger.info('📁 Google Drive service initialized successfully');
+      
     } catch (error) {
+      logger.error('❌ Drive service initialization error details:', {
+        message: error.message,
+        stack: error.stack,
+        credentialsType: typeof CONFIG.GOOGLE_CREDENTIALS,
+        hasClientEmail: !!(CONFIG.GOOGLE_CREDENTIALS && CONFIG.GOOGLE_CREDENTIALS.client_email)
+      });
       throw new Error(`Drive service initialization failed: ${error.message}`);
     }
   }
 
   async testConnection() {
     try {
+      logger.info('🔍 Testing Google Drive connection...');
+      logger.info(`   Target folder: ${CONFIG.GOOGLE_DRIVE_FOLDER_ID}`);
+      
       const auth = await this.auth.getClient();
       const drive = google.drive({ version: 'v3', auth });
       
-      await drive.files.get({ fileId: CONFIG.GOOGLE_DRIVE_FOLDER_ID });
+      const response = await drive.files.get({ 
+        fileId: CONFIG.GOOGLE_DRIVE_FOLDER_ID 
+      });
+      
+      logger.info('✅ Drive connection successful');
+      logger.info(`   Folder name: "${response.data.name}"`);
+      logger.info(`   Folder type: ${response.data.mimeType}`);
+      
       return true;
     } catch (error) {
+      logger.error('❌ Drive connection test failed:', {
+        message: error.message,
+        code: error.code,
+        status: error.status
+      });
+      
+      if (error.code === 403) {
+        logger.error('🚨 PERMISSION DENIED - Check:');
+        logger.error(`   1. Folder shared with: ${CONFIG.GOOGLE_CREDENTIALS.client_email}`);
+        logger.error('   2. Service account has Editor permissions');
+        logger.error('   3. Domain-wide delegation configured');
+      } else if (error.code === 404) {
+        logger.error('🚨 FOLDER NOT FOUND - Check:');
+        logger.error(`   1. Folder ID is correct: ${CONFIG.GOOGLE_DRIVE_FOLDER_ID}`);
+        logger.error('   2. Folder exists and is accessible');
+      }
+      
       throw new Error(`Drive connection test failed: ${error.message}`);
     }
   }
@@ -74,6 +123,7 @@ export class DriveService {
       
       return viewLink;
     } catch (error) {
+      logger.error('❌ Drive upload failed:', error);
       throw new Error(`Drive upload failed: ${error.message}`);
     }
   }
