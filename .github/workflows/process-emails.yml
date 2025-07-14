@@ -2,19 +2,9 @@ name: 🔥 Process Applicant Emails
 
 on:
   schedule:
+    # Run every 30 minutes
     - cron: "*/30 * * * *"
-  workflow_dispatch:
-    inputs:
-      debug_mode:
-        description: "Enable debug mode"
-        required: false
-        default: "false"
-        type: boolean
-      run_health_check:
-        description: "Run health check only"
-        required: false
-        default: "false"
-        type: boolean
+  workflow_dispatch: # Allow manual trigger
   push:
     branches: [main]
     paths: ["src/**"]
@@ -42,44 +32,31 @@ jobs:
       - name: 📦 Install Dependencies
         run: npm ci
 
-      - name: 🔍 Debug Credentials
-        if: github.event.inputs.debug_mode == 'true'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
-        run: node src/debug-credentials.js
-
-      - name: 🏥 Health Check Only
-        if: github.event.inputs.run_health_check == 'true'
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
-          DEBUG_MODE: ${{ github.event.inputs.debug_mode || 'false' }}
-        run: node src/health-check.js
+      - name: 🔧 Setup Environment
+        run: |
+          echo "WORKFLOW_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          echo "WORKFLOW_RUN_NUMBER=${{ github.run_number }}" >> $GITHUB_ENV
 
       - name: 🚀 Process Applicant Emails
-        if: github.event.inputs.run_health_check != 'true'
         env:
+          # Supabase Configuration
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+
+          # OpenAI Configuration
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+          # Google Services Configuration
           GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
+
+          # Application Configuration
           BATCH_SIZE: ${{ vars.BATCH_SIZE || '50' }}
           MAX_EMAIL_AGE_DAYS: ${{ vars.MAX_EMAIL_AGE_DAYS || '7' }}
-          DEBUG_MODE: ${{ github.event.inputs.debug_mode || vars.DEBUG_MODE || 'false' }}
+          DEBUG_MODE: ${{ vars.DEBUG_MODE || 'false' }}
+
         run: node src/main.js
 
       - name: 📊 Upload Processing Logs
@@ -89,3 +66,47 @@ jobs:
           name: processing-logs-${{ github.run_id }}
           path: logs/
           retention-days: 7
+
+      - name: 📈 Upload Processing Stats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: processing-stats-${{ github.run_id }}
+          path: stats.json
+          retention-days: 30
+
+      - name: 🚨 Notify on Failure
+        if: failure()
+        run: |
+          echo "::error::Email processing failed in run ${{ github.run_id }}"
+          echo "Check the logs for more details"
+
+  # Optional: Health check job
+  health-check:
+    name: 🏥 System Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🔍 Run Health Checks
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
+        run: node src/health-check.js
