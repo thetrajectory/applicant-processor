@@ -67,33 +67,28 @@ export class SupabaseService {
     }
   }
 
-  // Keep the old method for backward compatibility but mark as deprecated
-  async emailExists(email) {
-    logger.warn('⚠️ emailExists() is deprecated, use isDuplicateApplicant() instead');
-    return await this.isDuplicateApplicant(email, null);
-  }
-
   async createApplicant(applicantData) {
     try {
+      // Clean data to match exact schema
+      const cleanData = {
+        email: applicantData.email,
+        name: applicantData.name || null,
+        title: applicantData.title || null,
+        location: applicantData.location || null,
+        expected_compensation: applicantData.expected_compensation || null,
+        project_id: applicantData.project_id || null,
+        screening_questions: applicantData.screening_questions || null,
+        resume_raw_text: applicantData.resume_raw_text || null,
+        mobile_number: applicantData.mobile_number || null,
+        linkedin_url: applicantData.linkedin_url || null,
+        resume_drive_link: applicantData.resume_drive_link || null,
+        processed_at: new Date().toISOString()
+      };
+
       const { data, error } = await this.supabase
         .from(CONFIG.TABLE_NAME)
-        .upsert([{
-          email: applicantData.email,
-          name: applicantData.name,
-          title: applicantData.title,
-          location: applicantData.location,
-          expected_compensation: applicantData.expected_compensation,
-          project_id: applicantData.project_id,
-          screening_questions: applicantData.screening_questions,
-          resume_raw_text: applicantData.resume_raw_text,
-          resume_drive_link: applicantData.resume_drive_link,
-          mobile_number: applicantData.mobile_number,
-          linkedin_url: applicantData.linkedin_url,
-          processed_at: applicantData.processed_at,
-          source_message_id: applicantData.source_message_id,
-          processing_time_ms: applicantData.processing_time_ms
-        }], {
-          onConflict: 'email,project_id' // Updated to use composite key
+        .upsert([cleanData], {
+          onConflict: 'email'
         })
         .select();
       

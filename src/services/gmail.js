@@ -33,9 +33,10 @@ export class GmailService {
       const auth = await this.authService.getAuthClient();
       const gmail = google.gmail({ version: 'v1', auth });
       
+      // Enhanced query for LinkedIn job applications
       const query = [
-        'from:(linkedin.com OR jobs-noreply@linkedin.com)',
-        'subject:("new application" OR "job application")',
+        'from:(linkedin.com OR jobs-noreply@linkedin.com OR noreply@linkedin.com)',
+        'subject:("new application" OR "job application" OR "applicant")',
         `newer_than:${CONFIG.MAX_EMAIL_AGE_DAYS}d`
       ].join(' ');
       
@@ -90,30 +91,53 @@ export class GmailService {
       let body = '';
       let htmlBody = '';
 
-      if (message.payload.body?.data) {
-        body = Buffer.from(message.payload.body.data, 'base64').toString();
-      } else if (message.payload.parts) {
-        for (const part of message.payload.parts) {
-          if (part.mimeType === 'text/plain' && part.body?.data) {
-            body = Buffer.from(part.body.data, 'base64').toString();
-          } else if (part.mimeType === 'text/html' && part.body?.data) {
-            htmlBody = Buffer.from(part.body.data, 'base64').toString();
+      // Enhanced email body parsing
+      const extractBody = (payload) => {
+        if (payload.body?.data) {
+          const bodyText = Buffer.from(payload.body.data, 'base64').toString('utf8');
+          if (payload.mimeType === 'text/plain') {
+            body += bodyText;
+          } else if (payload.mimeType === 'text/html') {
+            htmlBody += bodyText;
           }
         }
-      }
+
+        if (payload.parts) {
+          payload.parts.forEach(part => {
+            if (part.mimeType === 'text/plain' && part.body?.data) {
+              body += Buffer.from(part.body.data, 'base64').toString('utf8');
+            } else if (part.mimeType === 'text/html' && part.body?.data) {
+              htmlBody += Buffer.from(part.body.data, 'base64').toString('utf8');
+            } else if (part.parts) {
+              // Handle nested parts
+              extractBody(part);
+            }
+          });
+        }
+      };
+
+      extractBody(message.payload);
 
       const attachments = this.extractAttachments(message.payload);
 
-      return {
+      const parsedMessage = {
         id: message.id,
         subject,
         from,
         date: new Date(date),
-        body: body || htmlBody,
-        htmlBody,
+        body: body.trim(),
+        htmlBody: htmlBody.trim(),
         attachments,
         threadId: message.threadId
       };
+
+      // Log email content for debugging (only first 200 chars)
+      logger.debug(`📧 Parsed message: ${subject}`);
+      logger.debug(`   Body length: ${body.length}`);
+      logger.debug(`   HTML length: ${htmlBody.length}`);
+      logger.debug(`   Body preview: ${body.substring(0, 200)}...`);
+
+      return parsedMessage;
     } catch (error) {
       logger.error(`Error parsing message:`, error);
       return null;

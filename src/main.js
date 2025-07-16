@@ -30,21 +30,24 @@ class ApplicantProcessor {
       applicantsCreated: 0,
       duplicatesFound: 0,
       ocrProcessed: 0,
+      parsingSuccessRate: {
+        name: 0,
+        title: 0,
+        location: 0,
+        compensation: 0,
+        projectId: 0,
+        screeningQuestions: 0
+      },
       errors: []
     };
   }
 
   async initialize() {
-    logger.info('🚀 Initializing OAuth2-based Applicant Processor...');
+    logger.info('🚀 Initializing Enhanced Applicant Processor...');
     
     try {
-      // Ensure logs directory exists
       await fs.mkdir('logs', { recursive: true });
-      
-      // Test all service connections
       await this.testConnections();
-      
-      // Initialize sheet headers if needed
       await this.sheets.initializeSheet();
       
       logger.info('✅ Initialization complete');
@@ -75,14 +78,7 @@ class ApplicantProcessor {
         await test();
         logger.info(`✅ ${name} connection successful`);
       } catch (error) {
-        logger.error(`❌ ${name} connection failed:`);
-        logger.error(`   Message: ${error.message}`);
-        logger.error(`   Code: ${error.code || 'N/A'}`);
-        logger.error(`   Status: ${error.status || 'N/A'}`);
-        
-        if (error.stack) {
-          logger.error(`   Stack: ${error.stack}`);
-        }
+        logger.error(`❌ ${name} connection failed: ${error.message}`);
         
         if (critical) {
           criticalFailures++;
@@ -100,23 +96,18 @@ class ApplicantProcessor {
 
   async processEmails() {
     try {
-      logger.info('🔥 Starting email processing cycle...');
+      logger.info('🔥 Starting enhanced email processing cycle...');
       
       const messages = await this.gmail.getLatestEmails(CONFIG.BATCH_SIZE);
       this.stats.emailsFound = messages.length;
       
       if (messages.length === 0) {
         logger.info('📭 No new emails found');
-        logger.info('   This could mean:');
-        logger.info('   - No new LinkedIn job applications');
-        logger.info('   - All recent emails already processed');
-        logger.info('   - Emails older than MAX_EMAIL_AGE_DAYS setting');
         return;
       }
 
       logger.info(`📋 Processing ${messages.length} emails...`);
 
-      // Process each message
       for (let i = 0; i < messages.length; i++) {
         const message = messages[i];
         try {
@@ -130,25 +121,15 @@ class ApplicantProcessor {
             error: error.message,
             timestamp: new Date()
           });
-          logger.error(`❌ Error processing message ${message.id}:`, {
-            subject: message.subject,
-            error: error.message,
-            stack: error.stack
-          });
-          
-          // Continue processing other emails even if one fails
-          logger.info(`   Continuing with remaining ${messages.length - i - 1} emails...`);
+          logger.error(`❌ Error processing message ${message.id}:`, error.message);
         }
       }
       
-      await this.generateReport();
-      logger.info('✅ Email processing cycle completed');
+      await this.generateEnhancedReport();
+      logger.info('✅ Enhanced email processing cycle completed');
       
     } catch (error) {
-      logger.error('❌ Fatal error in email processing:', {
-        message: error.message,
-        stack: error.stack
-      });
+      logger.error('❌ Fatal error in email processing:', error.message);
       throw error;
     }
   }
@@ -158,14 +139,12 @@ class ApplicantProcessor {
     logger.info(`🔄 Processing: "${message.subject}" (${message.id})`);
     
     try {
-      // Check if LinkedIn application
       if (!this.parser.isLinkedInApplication(message)) {
         logger.info(`📧 Not a LinkedIn application: ${message.id}`);
         this.stats.emailsSkipped++;
         return;
       }
       
-      // Check email age
       const emailAge = (new Date() - message.date) / (1000 * 60 * 60 * 24);
       if (emailAge > CONFIG.MAX_EMAIL_AGE_DAYS) {
         logger.info(`⏳ Email too old (${emailAge.toFixed(1)} days): ${message.id}`);
@@ -173,8 +152,11 @@ class ApplicantProcessor {
         return;
       }
       
-      // Parse LinkedIn application data
+      // Enhanced parsing with detailed logging
       const parsedData = this.parser.parseLinkedInApplication(message);
+      
+      // Update parsing success stats
+      this.updateParsingStats(parsedData);
       
       if (!parsedData.name?.trim()) {
         logger.warn(`⚠️ No applicant name found: ${message.id}`);
@@ -183,8 +165,9 @@ class ApplicantProcessor {
       }
       
       logger.info(`👤 Processing applicant: ${parsedData.name}`);
+      logger.info(`📊 Parsing results - Title: ${parsedData.title ? '✅' : '❌'}, Location: ${parsedData.location ? '✅' : '❌'}, Compensation: ${parsedData.expected_compensation ? '✅' : '❌'}, Project ID: ${parsedData.project_id ? '✅' : '❌'}`);
       
-      // Process attachments - Upload to Drive and OCR
+      // Process attachments
       let resumeText = null;
       let resumeDriveLink = null;
       
@@ -197,7 +180,6 @@ class ApplicantProcessor {
           try {
             logger.info(`📄 Processing PDF attachment: ${pdfAttachment.filename}`);
             
-            // Download attachment
             const attachmentData = await this.gmail.downloadAttachment(
               message.id, 
               pdfAttachment.attachmentId
@@ -205,7 +187,6 @@ class ApplicantProcessor {
             
             logger.info(`📥 Downloaded attachment: ${attachmentData.length} bytes`);
             
-            // Upload to Drive for permanent storage
             resumeDriveLink = await this.drive.uploadFile(
               attachmentData,
               `${parsedData.name}_${parsedData.project_id || 'CV'}.pdf`,
@@ -214,7 +195,6 @@ class ApplicantProcessor {
             
             logger.info(`📁 PDF uploaded to Drive: ${resumeDriveLink}`);
             
-            // Process with OCR if enabled
             if (CONFIG.ENABLE_OCR) {
               try {
                 logger.info(`🔍 Processing with OCR...`);
@@ -223,7 +203,7 @@ class ApplicantProcessor {
                 this.stats.ocrProcessed++;
                 logger.info(`📖 OCR completed: ${ocrResult.length} characters extracted`);
               } catch (ocrError) {
-                logger.error(`❌ OCR processing failed:`, ocrError);
+                logger.error(`❌ OCR processing failed:`, ocrError.message);
                 resumeText = `OCR processing failed: ${ocrError.message}\nPDF stored at: ${resumeDriveLink}`;
               }
             } else {
@@ -232,26 +212,13 @@ class ApplicantProcessor {
             }
             
           } catch (error) {
-            logger.error(`❌ Error processing PDF attachment:`, {
-              filename: pdfAttachment.filename,
-              error: error.message,
-              stack: error.stack
-            });
+            logger.error(`❌ Error processing PDF attachment:`, error.message);
             resumeText = `PDF processing failed: ${error.message}`;
           }
-        } else {
-          logger.info(`📎 No PDF attachments found (${message.attachments.length} attachments total)`);
-          
-          // Log what attachments we did find
-          message.attachments.forEach((att, i) => {
-            logger.info(`   ${i + 1}. ${att.filename} (${att.mimeType})`);
-          });
         }
-      } else {
-        logger.info(`📎 No attachments found`);
       }
       
-      // Extract contact info with GPT ONLY if we have resume text
+      // Extract contact info with GPT
       let contactInfo = { mobile_number: null, email: null, linkedin_url: null };
       
       if (resumeText && CONFIG.ENABLE_GPT) {
@@ -260,24 +227,13 @@ class ApplicantProcessor {
           contactInfo = await this.openai.extractContactInfo(resumeText);
           logger.info(`📞 Contact info extracted:`, contactInfo);
         } catch (error) {
-          logger.error(`❌ GPT extraction failed:`, {
-            error: error.message,
-            stack: error.stack
-          });
+          logger.error(`❌ GPT extraction failed:`, error.message);
         }
-      } else if (!CONFIG.ENABLE_GPT) {
-        logger.info(`🤖 GPT extraction disabled`);
-      } else {
-        logger.info(`🤖 No resume text available for GPT extraction`);
       }
       
-      // Determine primary email - ONLY from GPT extraction
       const applicantEmail = contactInfo.email;
-      
       if (!applicantEmail) {
         logger.warn(`⚠️ No email found in resume for applicant: ${parsedData.name}`);
-        logger.warn(`   GPT extracted email: ${contactInfo.email || 'None'}`);
-        logger.warn(`   This applicant will be skipped as email is required`);
         this.stats.emailsSkipped++;
         return;
       }
@@ -291,7 +247,7 @@ class ApplicantProcessor {
         return;
       }
       
-      // Prepare complete applicant data
+      // Prepare complete applicant data matching schema
       const applicantData = {
         email: applicantEmail,
         name: parsedData.name.trim(),
@@ -304,12 +260,10 @@ class ApplicantProcessor {
         resume_drive_link: resumeDriveLink || null,
         mobile_number: contactInfo.mobile_number || null,
         linkedin_url: contactInfo.linkedin_url || null,
-        processed_at: new Date().toISOString(),
-        source_message_id: message.id,
-        processing_time_ms: Date.now() - startTime
+        processed_at: new Date().toISOString()
       };
       
-      // Store in both Sheets and Supabase (unless dry run)
+      // Store in both Sheets and Supabase
       if (!CONFIG.DRY_RUN) {
         try {
           logger.info(`💾 Storing applicant data for: ${applicantData.name}`);
@@ -322,12 +276,7 @@ class ApplicantProcessor {
           logger.info(`📊 Data stored in Sheets and Supabase`);
           
         } catch (storageError) {
-          logger.error(`❌ Error storing applicant data:`, {
-            applicant: applicantData.name,
-            email: applicantData.email,
-            error: storageError.message,
-            stack: storageError.stack
-          });
+          logger.error(`❌ Error storing applicant data:`, storageError.message);
           throw storageError;
         }
       } else {
@@ -340,209 +289,170 @@ class ApplicantProcessor {
       const processingTime = Date.now() - startTime;
       logger.info(`✅ Successfully processed: ${parsedData.name} (${applicantEmail}) in ${processingTime}ms`);
       
-      // Log key details for verification
-      logger.info(`   📋 Details: Title="${parsedData.title || 'N/A'}", Location="${parsedData.location || 'N/A'}", Project="${parsedData.project_id || 'N/A'}"`);
+      // Enhanced logging with parsing quality metrics
+      logger.info(`   📋 Parsing Quality - Name: ✅, Title: ${parsedData.title ? '✅' : '❌'}, Location: ${parsedData.location ? '✅' : '❌'}`);
+      logger.info(`   💰 Compensation: ${parsedData.expected_compensation ? '✅ ' + parsedData.expected_compensation : '❌'}, Project: ${parsedData.project_id ? '✅ ' + parsedData.project_id : '❌'}`);
       logger.info(`   📞 Contact: Mobile="${contactInfo.mobile_number || 'N/A'}", LinkedIn="${contactInfo.linkedin_url || 'N/A'}"`);
       logger.info(`   📄 Resume: ${resumeDriveLink ? 'Uploaded to Drive' : 'No PDF'}, OCR: ${resumeText ? 'Extracted' : 'None'}`);
       
     } catch (error) {
-      logger.error(`❌ Error in processMessage for ${message.id}:`, {
-        subject: message.subject,
-        error: error.message,
-        stack: error.stack
-      });
+      logger.error(`❌ Error in processMessage for ${message.id}:`, error.message);
       throw error;
     }
   }
-
- extractEmailFromSender(message) {
-   try {
-     const match = message.from.match(/([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})/);
-     return match ? match[1] : null;
-   } catch (error) {
-     logger.error(`Error extracting email from sender:`, error);
-     return null;
-   }
- }
-
- async generateReport() {
-   try {
-     const endTime = new Date();
-     const duration = (endTime - this.stats.startTime) / 1000;
-     
-     const report = {
-       ...this.stats,
-       endTime,
-       durationSeconds: duration,
-       successRate: this.stats.emailsFound > 0 ? (this.stats.emailsProcessed / this.stats.emailsFound * 100).toFixed(1) : 0,
-       environment: {
-         nodeVersion: process.version,
-         platform: process.platform,
-         workflowRunId: process.env.WORKFLOW_RUN_ID || 'local',
-         workflowRunNumber: process.env.WORKFLOW_RUN_NUMBER || 'local',
-         debugMode: CONFIG.DEBUG_MODE,
-         dryRun: CONFIG.DRY_RUN,
-         authMethod: 'OAuth2'
-       }
-     };
-     
-     // Save stats for artifacts
-     await fs.writeFile('stats.json', JSON.stringify(report, null, 2));
-     
-     // Log comprehensive summary
-     logger.info('📊 ===== PROCESSING SUMMARY =====');
-     logger.info(`🔥 Total emails found: ${this.stats.emailsFound}`);
-     logger.info(`✅ Emails processed: ${this.stats.emailsProcessed}`);
-     logger.info(`⏭️ Emails skipped: ${this.stats.emailsSkipped}`);
-     logger.info(`❌ Errors encountered: ${this.stats.emailsErrored}`);
-     logger.info(`👥 New applicants created: ${this.stats.applicantsCreated}`);
-     logger.info(`🔄 Duplicates found: ${this.stats.duplicatesFound}`);
-     logger.info(`📄 PDFs processed: ${this.stats.ocrProcessed}`);
-     logger.info(`📈 Success rate: ${report.successRate}%`);
-     logger.info(`⏱️ Total duration: ${duration.toFixed(1)}s`);
-     logger.info(`🔐 Authentication: OAuth2`);
-     
-     if (this.stats.errors.length > 0) {
-       logger.warn(`⚠️ ${this.stats.errors.length} Errors encountered:`);
-       this.stats.errors.forEach((error, i) => {
-         logger.warn(`   ${i + 1}. "${error.subject}": ${error.error}`);
-       });
-     }
-     
-     // Performance insights
-     if (this.stats.emailsFound > 0) {
-       const avgProcessingTime = duration / this.stats.emailsFound;
-       logger.info(`📊 Average processing time per email: ${avgProcessingTime.toFixed(2)}s`);
-     }
-     
-     // Recommendations
-     if (this.stats.emailsProcessed === 0 && this.stats.emailsFound > 0) {
-       logger.warn('⚠️ No emails were successfully processed!');
-       logger.warn('   Check for configuration issues or permission problems');
-     } else if (this.stats.duplicatesFound > this.stats.applicantsCreated) {
-       logger.info('ℹ️ High number of duplicates detected');
-       logger.info('   This is normal if the system has been running for a while');
-     }
-     
-     logger.info('📊 ===== END SUMMARY =====');
-     
-   } catch (error) {
-     logger.error('❌ Error generating report:', {
-       error: error.message,
-       stack: error.stack
-     });
-   }
- }
-}
-
-// Enhanced error handling
-process.on('unhandledRejection', (reason, promise) => {
- logger.error('🚨 Unhandled Promise Rejection detected!');
- logger.error('🚨 Promise:', promise);
- logger.error('🚨 Reason:', reason);
- logger.error('🚨 Stack:', reason.stack || 'No stack trace available');
  
- // Log additional debugging information
- logger.error('🔍 Process debugging info:', {
-   pid: process.pid,
-   memoryUsage: process.memoryUsage(),
-   uptime: process.uptime(),
-   nodeVersion: process.version,
-   platform: process.platform
+  updateParsingStats(parsedData) {
+    if (parsedData.name) this.stats.parsingSuccessRate.name++;
+    if (parsedData.title) this.stats.parsingSuccessRate.title++;
+    if (parsedData.location) this.stats.parsingSuccessRate.location++;
+    if (parsedData.expected_compensation) this.stats.parsingSuccessRate.compensation++;
+    if (parsedData.project_id) this.stats.parsingSuccessRate.projectId++;
+    if (parsedData.screening_questions) this.stats.parsingSuccessRate.screeningQuestions++;
+  }
+ 
+  async generateEnhancedReport() {
+    try {
+      const endTime = new Date();
+      const duration = (endTime - this.stats.startTime) / 1000;
+      const processedCount = this.stats.emailsProcessed;
+      
+      // Calculate parsing success rates
+      const parsingRates = {};
+      Object.keys(this.stats.parsingSuccessRate).forEach(key => {
+        parsingRates[key] = processedCount > 0 
+          ? ((this.stats.parsingSuccessRate[key] / processedCount) * 100).toFixed(1)
+          : 0;
+      });
+      
+      const report = {
+        ...this.stats,
+        endTime,
+        durationSeconds: duration,
+        successRate: this.stats.emailsFound > 0 ? (this.stats.emailsProcessed / this.stats.emailsFound * 100).toFixed(1) : 0,
+        parsingSuccessRates: parsingRates,
+        environment: {
+          nodeVersion: process.version,
+          platform: process.platform,
+          workflowRunId: process.env.WORKFLOW_RUN_ID || 'local',
+          debugMode: CONFIG.DEBUG_MODE,
+          dryRun: CONFIG.DRY_RUN,
+          authMethod: 'OAuth2'
+        }
+      };
+      
+      await fs.writeFile('stats.json', JSON.stringify(report, null, 2));
+      
+      // Enhanced logging with parsing quality metrics
+      logger.info('📊 ===== ENHANCED PROCESSING SUMMARY =====');
+      logger.info(`🔥 Total emails found: ${this.stats.emailsFound}`);
+      logger.info(`✅ Emails processed: ${this.stats.emailsProcessed}`);
+      logger.info(`⏭️ Emails skipped: ${this.stats.emailsSkipped}`);
+      logger.info(`❌ Errors encountered: ${this.stats.emailsErrored}`);
+      logger.info(`👥 New applicants created: ${this.stats.applicantsCreated}`);
+      logger.info(`🔄 Duplicates found: ${this.stats.duplicatesFound}`);
+      logger.info(`📄 PDFs processed: ${this.stats.ocrProcessed}`);
+      logger.info(`📈 Success rate: ${report.successRate}%`);
+      logger.info(`⏱️ Total duration: ${duration.toFixed(1)}s`);
+      
+      // Detailed parsing quality report
+      logger.info('🎯 ===== PARSING QUALITY METRICS =====');
+      logger.info(`📝 Name extraction: ${parsingRates.name}% (${this.stats.parsingSuccessRate.name}/${processedCount})`);
+      logger.info(`💼 Title extraction: ${parsingRates.title}% (${this.stats.parsingSuccessRate.title}/${processedCount})`);
+      logger.info(`📍 Location extraction: ${parsingRates.location}% (${this.stats.parsingSuccessRate.location}/${processedCount})`);
+      logger.info(`💰 Compensation extraction: ${parsingRates.compensation}% (${this.stats.parsingSuccessRate.compensation}/${processedCount})`);
+      logger.info(`🆔 Project ID extraction: ${parsingRates.projectId}% (${this.stats.parsingSuccessRate.projectId}/${processedCount})`);
+      logger.info(`❓ Screening Questions extraction: ${parsingRates.screeningQuestions}% (${this.stats.parsingSuccessRate.screeningQuestions}/${processedCount})`);
+      
+      if (this.stats.errors.length > 0) {
+        logger.warn(`⚠️ ${this.stats.errors.length} Errors encountered:`);
+        this.stats.errors.forEach((error, i) => {
+          logger.warn(`   ${i + 1}. "${error.subject}": ${error.error}`);
+        });
+      }
+      
+      // Performance and quality insights
+      if (this.stats.emailsFound > 0) {
+        const avgProcessingTime = duration / this.stats.emailsFound;
+        logger.info(`📊 Average processing time per email: ${avgProcessingTime.toFixed(2)}s`);
+      }
+      
+      // Quality recommendations
+      const lowQualityFields = Object.entries(parsingRates).filter(([_, rate]) => parseFloat(rate) < 70);
+      if (lowQualityFields.length > 0) {
+        logger.warn('🔧 ===== PARSING IMPROVEMENT RECOMMENDATIONS =====');
+        lowQualityFields.forEach(([field, rate]) => {
+          logger.warn(`   ${field}: ${rate}% - Consider reviewing parsing patterns`);
+        });
+      }
+      
+      logger.info('📊 ===== END ENHANCED SUMMARY =====');
+      
+    } catch (error) {
+      logger.error('❌ Error generating enhanced report:', error.message);
+    }
+  }
+ }
+ 
+ // Enhanced error handling with better debugging
+ process.on('unhandledRejection', (reason, promise) => {
+  logger.error('🚨 Unhandled Promise Rejection detected!');
+  logger.error('🚨 Promise:', promise);
+  logger.error('🚨 Reason:', reason);
+  logger.error('🚨 Stack:', reason.stack || 'No stack trace available');
+  
+  logger.warn('⚠️ Continuing execution despite unhandled rejection...');
  });
  
- // Don't exit immediately - log the error and continue
- logger.warn('⚠️ Continuing execution despite unhandled rejection...');
- logger.warn('   This error has been logged and the process will continue');
- logger.warn('   Check the logs above for the specific issue that needs to be fixed');
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
- logger.error('🚨 Uncaught Exception detected!');
- logger.error('🚨 Error:', error);
- logger.error('🚨 Stack:', error.stack);
- 
- logger.error('🔍 Process debugging info:', {
-   pid: process.pid,
-   memoryUsage: process.memoryUsage(),
-   uptime: process.uptime()
+ process.on('uncaughtException', (error) => {
+  logger.error('🚨 Uncaught Exception detected!');
+  logger.error('🚨 Error:', error);
+  logger.error('🚨 Stack:', error.stack);
+  logger.error('💥 Exiting due to uncaught exception...');
+  process.exit(1);
  });
  
- // Exit gracefully for uncaught exceptions
- logger.error('💥 Exiting due to uncaught exception...');
- process.exit(1);
-});
-
-// Graceful shutdown handling
-process.on('SIGINT', () => {
- logger.info('🛑 Received SIGINT signal, shutting down gracefully...');
- process.exit(0);
-});
-
-process.on('SIGTERM', () => {
- logger.info('🛑 Received SIGTERM signal, shutting down gracefully...');
- process.exit(0);
-});
-
-// Main execution function
-async function main() {
- const processor = new ApplicantProcessor();
- 
- try {
-   logger.info('🚀 ===== OAUTH2 APPLICANT PROCESSOR STARTING =====');
-   logger.info(`🔧 Configuration:`);
-   logger.info(`   Environment: ${CONFIG.IS_GITHUB_ACTIONS ? 'GitHub Actions' : 'Local'}`);
-   logger.info(`   Debug Mode: ${CONFIG.DEBUG_MODE}`);
-   logger.info(`   Dry Run: ${CONFIG.DRY_RUN}`);
-   logger.info(`   Batch Size: ${CONFIG.BATCH_SIZE}`);
-   logger.info(`   Max Email Age: ${CONFIG.MAX_EMAIL_AGE_DAYS} days`);
-   logger.info(`   OCR Enabled: ${CONFIG.ENABLE_OCR}`);
-   logger.info(`   GPT Enabled: ${CONFIG.ENABLE_GPT}`);
-   logger.info(`   Authentication: OAuth2`);
-   logger.info('');
-   
-   await processor.initialize();
-   await processor.processEmails();
-   
-   logger.info('🎉 ===== APPLICATION COMPLETED SUCCESSFULLY =====');
-   logger.info('   All email processing has finished');
-   logger.info('   Check the processing summary above for details');
-   logger.info('   Logs and stats have been saved for review');
-   
-   process.exit(0);
-   
- } catch (error) {
-   logger.error('💥 ===== FATAL APPLICATION ERROR =====');
-   logger.error('🚨 Error Details:', {
-     message: error.message,
-     name: error.name,
-     code: error.code,
-     stack: error.stack
-   });
-   
-   // Log additional context for debugging
-   logger.error('🔍 Application Context:', {
-     nodeVersion: process.version,
-     platform: process.platform,
-     memoryUsage: process.memoryUsage(),
-     uptime: process.uptime(),
-     environment: CONFIG.IS_GITHUB_ACTIONS ? 'GitHub Actions' : 'Local',
-     configLoaded: !!CONFIG,
-     oauth2Configured: !!(CONFIG.GOOGLE_OAUTH_CONFIG?.client_id && CONFIG.GOOGLE_OAUTH_CONFIG?.refresh_token)
-   });
-   
-   logger.error('💡 Troubleshooting suggestions:');
-   logger.error('   1. Check all environment variables are set correctly');
-   logger.error('   2. Run: npm run setup (to configure OAuth2)');
-   logger.error('   3. Verify Google Sheet and Drive folder permissions');
-   logger.error('   4. Ensure refresh token is valid and not expired');
-   logger.error('   5. Check Supabase database and tables exist');
-   logger.error('   6. Verify OpenAI API key has sufficient credits');
-   
-   process.exit(1);
+ // Main execution function
+ async function main() {
+  const processor = new ApplicantProcessor();
+  
+  try {
+    logger.info('🚀 ===== ENHANCED APPLICANT PROCESSOR STARTING =====');
+    logger.info(`🔧 Configuration:`);
+    logger.info(`   Environment: ${CONFIG.IS_GITHUB_ACTIONS ? 'GitHub Actions' : 'Local'}`);
+    logger.info(`   Debug Mode: ${CONFIG.DEBUG_MODE}`);
+    logger.info(`   Dry Run: ${CONFIG.DRY_RUN}`);
+    logger.info(`   Batch Size: ${CONFIG.BATCH_SIZE}`);
+    logger.info(`   Max Email Age: ${CONFIG.MAX_EMAIL_AGE_DAYS} days`);
+    logger.info(`   OCR Enabled: ${CONFIG.ENABLE_OCR}`);
+    logger.info(`   GPT Enabled: ${CONFIG.ENABLE_GPT}`);
+    logger.info(`   Authentication: OAuth2`);
+    logger.info('');
+    
+    await processor.initialize();
+    await processor.processEmails();
+    
+    logger.info('🎉 ===== APPLICATION COMPLETED SUCCESSFULLY =====');
+    process.exit(0);
+    
+  } catch (error) {
+    logger.error('💥 ===== FATAL APPLICATION ERROR =====');
+    logger.error('🚨 Error Details:', {
+      message: error.message,
+      name: error.name,
+      code: error.code,
+      stack: error.stack
+    });
+    
+    logger.error('💡 Troubleshooting suggestions:');
+    logger.error('   1. Check all environment variables are set correctly');
+    logger.error('   2. Run: npm run setup (to configure OAuth2)');
+    logger.error('   3. Verify Google Sheet and Drive folder permissions');
+    logger.error('   4. Ensure refresh token is valid and not expired');
+    logger.error('   5. Check Supabase database and tables exist');
+    logger.error('   6. Verify OpenAI API key has sufficient credits');
+    
+    process.exit(1);
+  }
  }
-}
-
-// Start the application
-main();
+ 
+ main();

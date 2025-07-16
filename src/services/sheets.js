@@ -21,9 +21,7 @@ export class SheetsService {
       
       logger.info(`✅ Sheet access successful: "${response.data.properties.title}"`);
       logger.info(`   Sheet ID: ${CONFIG.GOOGLE_SHEET_ID}`);
-      logger.info(`   Created: ${response.data.properties.createdTime}`);
       
-      // Test read access
       const readTest = await sheets.spreadsheets.values.get({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
         range: 'A1:Z1'
@@ -50,17 +48,24 @@ export class SheetsService {
       // Check if headers exist
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-        range: 'A1:M1'
+        range: 'A1:L1'  // Updated to match actual schema columns
       });
       
       if (!response.data.values || response.data.values.length === 0) {
-        // Add headers
+        // Add headers matching database schema
+        const headers = [
+          'Name', 'Title', 'Location', 'Expected Compensation',
+          'Project ID', 'Screening Questions', 'Resume Raw Text',
+          'Resume Drive Link', 'Mobile Number', 'Email',
+          'LinkedIn URL', 'Processed At'
+        ];
+        
         await sheets.spreadsheets.values.update({
           spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-          range: 'A1:M1',
+          range: 'A1:L1',
           valueInputOption: 'RAW',
           requestBody: {
-            values: [CONFIG.SHEET_HEADERS]
+            values: [headers]
           }
         });
         
@@ -79,6 +84,7 @@ export class SheetsService {
       const auth = await this.authService.getAuthClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
+      // Match exact database schema order
       const rowData = [
         applicantData.name || '',
         applicantData.title || '',
@@ -91,13 +97,12 @@ export class SheetsService {
         applicantData.mobile_number || '',
         applicantData.email || '',
         applicantData.linkedin_url || '',
-        applicantData.processed_at || '',
-        applicantData.source_message_id || ''
+        applicantData.processed_at || ''
       ];
       
       await sheets.spreadsheets.values.append({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-        range: 'A:M',
+        range: 'A:L',
         valueInputOption: 'RAW',
         requestBody: {
           values: [rowData]

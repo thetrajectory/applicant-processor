@@ -81,64 +81,43 @@ export class DriveService {
       
       logger.info(`🔍 Starting OCR conversion for: ${filename}`);
       
-      // Step 1: Upload PDF to Drive temporarily
-      const tempFileMetadata = {
-        name: `temp_ocr_${Date.now()}_${filename}`,
-        parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
-      };
-
+      // Upload PDF with OCR enabled
       const { Readable } = await import('stream');
       const stream = new Readable();
       stream.push(fileBuffer);
       stream.push(null);
-
-      const uploadResponse = await drive.files.create({
-        requestBody: tempFileMetadata,
+  
+      // Upload directly as Google Doc to enable OCR
+      const response = await drive.files.create({
+        requestBody: {
+          name: `ocr_${Date.now()}_${filename.replace('.pdf', '')}`,
+          parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID],
+          mimeType: 'application/vnd.google-apps.document'
+        },
         media: {
           mimeType: 'application/pdf',
           body: stream
         },
         fields: 'id'
       });
-
-      const tempFileId = uploadResponse.data.id;
-      logger.info(`📄 PDF uploaded for OCR processing: ${tempFileId}`);
-
-      // Step 2: Convert PDF to Google Doc for text extraction
-      const docMetadata = {
-        name: `temp_doc_${Date.now()}`,
-        parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
-      };
-
-      const copyResponse = await drive.files.copy({
-        fileId: tempFileId,
-        requestBody: docMetadata,
-        fields: 'id'
-      });
-
-      const docFileId = copyResponse.data.id;
-      logger.info(`📝 Created Google Doc copy: ${docFileId}`);
-
-      // Step 3: Export as plain text
+  
+      const docId = response.data.id;
+      logger.info(`📝 PDF converted to Google Doc with OCR: ${docId}`);
+  
+      // Export as plain text
       const exportResponse = await drive.files.export({
-        fileId: docFileId,
+        fileId: docId,
         mimeType: 'text/plain'
       });
-
+  
       const extractedText = exportResponse.data;
       logger.info(`📖 Text extracted: ${extractedText.length} characters`);
-
-      // Step 4: Cleanup temporary files
-      await Promise.all([
-        drive.files.delete({ fileId: tempFileId }).catch(err => 
-          logger.warn(`Failed to delete temp PDF: ${err.message}`)
-        ),
-        drive.files.delete({ fileId: docFileId }).catch(err => 
-          logger.warn(`Failed to delete temp Doc: ${err.message}`)
-        )
-      ]);
-
-      // Step 5: Format the result
+  
+      // Cleanup
+      await drive.files.delete({ fileId: docId }).catch(err => 
+        logger.warn(`Failed to delete temp Doc: ${err.message}`)
+      );
+  
       const formattedText = this.formatOCRResult(extractedText, filename);
       
       return {
@@ -146,11 +125,10 @@ export class DriveService {
         originalText: extractedText,
         length: extractedText.length
       };
-
+  
     } catch (error) {
-      logger.error(`❌ OCR conversion failed for ${filename}:`, error);
+      logger.error(`❌ OCR conversion failed for ${filename}:`, error.message);
       
-      // Return a fallback result instead of throwing
       return {
         text: `OCR conversion failed for ${filename}: ${error.message}`,
         originalText: '',
