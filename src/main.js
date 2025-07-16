@@ -158,17 +158,9 @@ class ApplicantProcessor {
     logger.info(`🔄 Processing: "${message.subject}" (${message.id})`);
     
     try {
-      // Check if already processed
-      if (await this.storage.isProcessed(message.id)) {
-        logger.info(`⏭️ Already processed: ${message.id}`);
-        this.stats.emailsSkipped++;
-        return;
-      }
-      
       // Check if LinkedIn application
       if (!this.parser.isLinkedInApplication(message)) {
         logger.info(`📧 Not a LinkedIn application: ${message.id}`);
-        await this.storage.markProcessed(message.id, 'not_linkedin');
         this.stats.emailsSkipped++;
         return;
       }
@@ -177,7 +169,6 @@ class ApplicantProcessor {
       const emailAge = (new Date() - message.date) / (1000 * 60 * 60 * 24);
       if (emailAge > CONFIG.MAX_EMAIL_AGE_DAYS) {
         logger.info(`⏳ Email too old (${emailAge.toFixed(1)} days): ${message.id}`);
-        await this.storage.markProcessed(message.id, 'too_old');
         this.stats.emailsSkipped++;
         return;
       }
@@ -187,7 +178,6 @@ class ApplicantProcessor {
       
       if (!parsedData.name?.trim()) {
         logger.warn(`⚠️ No applicant name found: ${message.id}`);
-        await this.storage.markProcessed(message.id, 'no_name');
         this.stats.emailsSkipped++;
         return;
       }
@@ -224,14 +214,14 @@ class ApplicantProcessor {
             
             logger.info(`📁 PDF uploaded to Drive: ${resumeDriveLink}`);
             
-            // Note: OCR is simplified in OAuth2 version
+            // Process with OCR if enabled
             if (CONFIG.ENABLE_OCR) {
               try {
-                logger.info(`🔍 OCR processing (simplified version)...`);
+                logger.info(`🔍 Processing with OCR...`);
                 const ocrResult = await this.drive.convertPDFToText(attachmentData, pdfAttachment.filename);
                 resumeText = ocrResult.text;
                 this.stats.ocrProcessed++;
-                logger.info(`📖 OCR completed: ${ocrResult.length} characters`);
+                logger.info(`📖 OCR completed: ${ocrResult.length} characters extracted`);
               } catch (ocrError) {
                 logger.error(`❌ OCR processing failed:`, ocrError);
                 resumeText = `OCR processing failed: ${ocrError.message}\nPDF stored at: ${resumeDriveLink}`;
@@ -255,119 +245,115 @@ class ApplicantProcessor {
           // Log what attachments we did find
           message.attachments.forEach((att, i) => {
             logger.info(`   ${i + 1}. ${att.filename} (${att.mimeType})`);
-         });
-       }
-     } else {
-       logger.info(`📎 No attachments found`);
-     }
-     
-     // Extract contact info with GPT
-     let contactInfo = { mobile_number: null, email: null, linkedin_url: null };
-     
-     if (resumeText && CONFIG.ENABLE_GPT) {
-       try {
-         logger.info(`🤖 Extracting contact info with GPT...`);
-         contactInfo = await this.openai.extractContactInfo(resumeText);
-         logger.info(`📞 Contact info extracted:`, contactInfo);
-       } catch (error) {
-         logger.error(`❌ GPT extraction failed:`, {
-           error: error.message,
-           stack: error.stack
-         });
-       }
-     } else if (!CONFIG.ENABLE_GPT) {
-       logger.info(`🤖 GPT extraction disabled`);
-     } else {
-       logger.info(`🤖 No resume text available for GPT extraction`);
-     }
-     
-     // Determine primary email
-     const applicantEmail = contactInfo.email || this.extractEmailFromSender(message);
-     
-     if (!applicantEmail) {
-       logger.warn(`⚠️ No email found for applicant: ${parsedData.name}`);
-       logger.warn(`   GPT extracted email: ${contactInfo.email || 'None'}`);
-       logger.warn(`   Sender email: ${this.extractEmailFromSender(message) || 'None'}`);
-       await this.storage.markProcessed(message.id, 'no_email');
-       this.stats.emailsSkipped++;
-       return;
-     }
-     
-     // Check for duplicates
-     if (await this.supabase.emailExists(applicantEmail)) {
-       logger.info(`🔄 Duplicate email found: ${applicantEmail}`);
-       await this.storage.markProcessed(message.id, 'duplicate_email');
-       this.stats.duplicatesFound++;
-       return;
-     }
-     
-     // Prepare complete applicant data
-     const applicantData = {
-       email: applicantEmail,
-       name: parsedData.name.trim(),
-       title: parsedData.title || null,
-       location: parsedData.location || null,
-       expected_compensation: parsedData.expected_compensation || null,
-       project_id: parsedData.project_id || null,
-       screening_questions: parsedData.screening_questions || null,
-       resume_raw_text: resumeText || null,
-       resume_drive_link: resumeDriveLink || null,
-       mobile_number: contactInfo.mobile_number || null,
-       linkedin_url: contactInfo.linkedin_url || null,
-       processed_at: new Date().toISOString(),
-       source_message_id: message.id,
-       processing_time_ms: Date.now() - startTime
-     };
-     
-     // Store in both Sheets and Supabase (unless dry run)
-     if (!CONFIG.DRY_RUN) {
-       try {
-         logger.info(`💾 Storing applicant data for: ${applicantData.name}`);
-         
-         await Promise.all([
-           this.sheets.appendApplicant(applicantData),
-           this.supabase.createApplicant(applicantData)
-         ]);
-         
-         logger.info(`📊 Data stored in Sheets and Supabase`);
-         
-         // Mark as processed
-         await this.storage.markProcessed(message.id, 'success');
-         
-       } catch (storageError) {
-         logger.error(`❌ Error storing applicant data:`, {
-           applicant: applicantData.name,
-           email: applicantData.email,
-           error: storageError.message,
-           stack: storageError.stack
-         });
-         throw storageError;
-       }
-     } else {
-       logger.info('🧪 DRY RUN: Would store data for:', applicantData.name);
-       logger.info('🧪 DRY RUN: Would mark message as processed');
-     }
-     
-     this.stats.emailsProcessed++;
-     this.stats.applicantsCreated++;
-     
-     const processingTime = Date.now() - startTime;
-     logger.info(`✅ Successfully processed: ${parsedData.name} (${applicantEmail}) in ${processingTime}ms`);
-     
-     // Log key details for verification
-     logger.info(`   📋 Details: Title="${parsedData.title || 'N/A'}", Location="${parsedData.location || 'N/A'}"`);
-     logger.info(`   📞 Contact: Mobile="${contactInfo.mobile_number || 'N/A'}", LinkedIn="${contactInfo.linkedin_url || 'N/A'}"`);
-     logger.info(`   📄 Resume: ${resumeDriveLink ? 'Uploaded to Drive' : 'No PDF'}, OCR: ${resumeText ? 'Extracted' : 'None'}`);
-     
-   } catch (error) {
-     logger.error(`❌ Error in processMessage for ${message.id}:`, {
-       subject: message.subject,
-       error: error.message,
-       stack: error.stack
-     });
-     throw error;
-   }
- }
+          });
+        }
+      } else {
+        logger.info(`📎 No attachments found`);
+      }
+      
+      // Extract contact info with GPT ONLY if we have resume text
+      let contactInfo = { mobile_number: null, email: null, linkedin_url: null };
+      
+      if (resumeText && CONFIG.ENABLE_GPT) {
+        try {
+          logger.info(`🤖 Extracting contact info with GPT...`);
+          contactInfo = await this.openai.extractContactInfo(resumeText);
+          logger.info(`📞 Contact info extracted:`, contactInfo);
+        } catch (error) {
+          logger.error(`❌ GPT extraction failed:`, {
+            error: error.message,
+            stack: error.stack
+          });
+        }
+      } else if (!CONFIG.ENABLE_GPT) {
+        logger.info(`🤖 GPT extraction disabled`);
+      } else {
+        logger.info(`🤖 No resume text available for GPT extraction`);
+      }
+      
+      // Determine primary email - ONLY from GPT extraction
+      const applicantEmail = contactInfo.email;
+      
+      if (!applicantEmail) {
+        logger.warn(`⚠️ No email found in resume for applicant: ${parsedData.name}`);
+        logger.warn(`   GPT extracted email: ${contactInfo.email || 'None'}`);
+        logger.warn(`   This applicant will be skipped as email is required`);
+        this.stats.emailsSkipped++;
+        return;
+      }
+      
+      // Check for duplicates using email AND project_id
+      const isDuplicate = await this.supabase.isDuplicateApplicant(applicantEmail, parsedData.project_id);
+      
+      if (isDuplicate) {
+        logger.info(`🔄 Duplicate applicant: ${applicantEmail} for project ${parsedData.project_id || 'N/A'}`);
+        this.stats.duplicatesFound++;
+        return;
+      }
+      
+      // Prepare complete applicant data
+      const applicantData = {
+        email: applicantEmail,
+        name: parsedData.name.trim(),
+        title: parsedData.title || null,
+        location: parsedData.location || null,
+        expected_compensation: parsedData.expected_compensation || null,
+        project_id: parsedData.project_id || null,
+        screening_questions: parsedData.screening_questions || null,
+        resume_raw_text: resumeText || null,
+        resume_drive_link: resumeDriveLink || null,
+        mobile_number: contactInfo.mobile_number || null,
+        linkedin_url: contactInfo.linkedin_url || null,
+        processed_at: new Date().toISOString(),
+        source_message_id: message.id,
+        processing_time_ms: Date.now() - startTime
+      };
+      
+      // Store in both Sheets and Supabase (unless dry run)
+      if (!CONFIG.DRY_RUN) {
+        try {
+          logger.info(`💾 Storing applicant data for: ${applicantData.name}`);
+          
+          await Promise.all([
+            this.sheets.appendApplicant(applicantData),
+            this.supabase.createApplicant(applicantData)
+          ]);
+          
+          logger.info(`📊 Data stored in Sheets and Supabase`);
+          
+        } catch (storageError) {
+          logger.error(`❌ Error storing applicant data:`, {
+            applicant: applicantData.name,
+            email: applicantData.email,
+            error: storageError.message,
+            stack: storageError.stack
+          });
+          throw storageError;
+        }
+      } else {
+        logger.info('🧪 DRY RUN: Would store data for:', applicantData.name);
+      }
+      
+      this.stats.emailsProcessed++;
+      this.stats.applicantsCreated++;
+      
+      const processingTime = Date.now() - startTime;
+      logger.info(`✅ Successfully processed: ${parsedData.name} (${applicantEmail}) in ${processingTime}ms`);
+      
+      // Log key details for verification
+      logger.info(`   📋 Details: Title="${parsedData.title || 'N/A'}", Location="${parsedData.location || 'N/A'}", Project="${parsedData.project_id || 'N/A'}"`);
+      logger.info(`   📞 Contact: Mobile="${contactInfo.mobile_number || 'N/A'}", LinkedIn="${contactInfo.linkedin_url || 'N/A'}"`);
+      logger.info(`   📄 Resume: ${resumeDriveLink ? 'Uploaded to Drive' : 'No PDF'}, OCR: ${resumeText ? 'Extracted' : 'None'}`);
+      
+    } catch (error) {
+      logger.error(`❌ Error in processMessage for ${message.id}:`, {
+        subject: message.subject,
+        error: error.message,
+        stack: error.stack
+      });
+      throw error;
+    }
+  }
 
  extractEmailFromSender(message) {
    try {

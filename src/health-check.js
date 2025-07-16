@@ -32,24 +32,6 @@ async function runHealthCheck() {
     } catch (error) {
       results.push({ name, status: 'ERROR', error: error.message });
       logger.error(`❌ ${name}: ${error.message}`);
-      
-      // Provide specific guidance for common issues
-      if (name === 'OAuth2 Authentication') {
-        logger.error('🔧 OAuth2 Fix Required:');
-        logger.error('   1. Run: npm run setup');
-        logger.error('   2. Complete OAuth2 authorization');
-        logger.error('   3. Add GOOGLE_REFRESH_TOKEN to environment');
-      } else if (name === 'Google Sheets' && error.message.includes('403')) {
-        logger.error('🔧 Sheets Permission Fix Required:');
-        logger.error('   1. Share the Google Sheet with your Google account');
-        logger.error('   2. Grant "Editor" permissions');
-        logger.error('   3. Verify the GOOGLE_SHEET_ID is correct');
-      } else if (name === 'Google Drive' && error.message.includes('403')) {
-        logger.error('🔧 Drive Permission Fix Required:');
-        logger.error('   1. Share the Google Drive folder with your Google account');
-        logger.error('   2. Grant "Editor" permissions');
-        logger.error('   3. Verify the GOOGLE_DRIVE_FOLDER_ID is correct');
-      }
     }
   }
   
@@ -62,7 +44,6 @@ async function runHealthCheck() {
     logger.info('🎉 All systems operational! Ready to process emails.');
   } else {
     logger.warn('⚠️ Some services need attention before processing can begin.');
-    logger.warn('   Fix the issues above and re-run the health check.');
   }
   
   if (healthyServices < totalServices) {
