@@ -1,13 +1,14 @@
 {
-  "name": "applicant-processor",
-  "version": "1.0.0",
-  "description": "Automated applicant processing system using GitHub Actions",
+  "name": "applicant-processor-oauth2",
+  "version": "2.0.0",
+  "description": "OAuth2-based automated applicant processing system using GitHub Actions",
   "type": "module",
   "main": "src/main.js",
   "scripts": {
     "start": "node src/main.js",
-    "test": "node src/test-local.js",
+    "test": "node src/health-check.js",
     "health": "node src/health-check.js",
+    "setup": "node setup-oauth2.js",
     "dev": "node --watch src/main.js"
   },
   "dependencies": {
@@ -20,7 +21,7 @@
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["automation", "gmail", "applicant-tracking", "github-actions"],
+  "keywords": ["automation", "gmail", "oauth2", "applicant-tracking", "github-actions"],
   "author": "Your Name",
   "license": "MIT"
 }

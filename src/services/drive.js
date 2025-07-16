@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { OAuth2AuthService } from './oauth-auth.js';
 import { CONFIG } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -6,67 +7,55 @@ const logger = createLogger();
 
 export class DriveService {
   constructor() {
-    try {
-      logger.info('📁 Initializing Google Drive service...');
-      
-      // Use the already parsed credentials from CONFIG
-      const credentials = CONFIG.GOOGLE_CREDENTIALS;
-      
-      if (!credentials) {
-        throw new Error('Google credentials not available from CONFIG');
-      }
-      
-      if (typeof credentials !== 'object') {
-        throw new Error(`Google credentials should be object, got ${typeof credentials}`);
-      }
-      
-      if (!credentials.client_email) {
-        throw new Error('Google credentials missing client_email field');
-      }
-      
-      logger.info(`   Service Account: ${credentials.client_email}`);
-      logger.info(`   Project: ${credentials.project_id}`);
-      
-      this.auth = new google.auth.GoogleAuth({
-        credentials, // Use the already parsed object
-        scopes: [
-          'https://www.googleapis.com/auth/drive.file',
-          'https://www.googleapis.com/auth/drive'
-        ],
-        subject: CONFIG.GMAIL_USER_EMAIL
-      });
-      
-      this.drive = google.drive({ version: 'v3' });
-      
-      logger.info('📁 Google Drive service initialized successfully');
-      
-    } catch (error) {
-      logger.error('❌ Drive service initialization error:', {
-        message: error.message,
-        stack: error.stack,
-        credentialsType: typeof CONFIG.GOOGLE_CREDENTIALS,
-        hasGoogleCredentials: !!CONFIG.GOOGLE_CREDENTIALS,
-        configKeys: CONFIG.GOOGLE_CREDENTIALS ? Object.keys(CONFIG.GOOGLE_CREDENTIALS) : 'none'
-      });
-      throw new Error(`Drive service initialization failed: ${error.message}`);
-    }
+    this.authService = new OAuth2AuthService();
   }
 
   async testConnection() {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const drive = google.drive({ version: 'v3', auth });
       
-      await drive.files.get({ fileId: CONFIG.GOOGLE_DRIVE_FOLDER_ID });
+      // Test access to the drive folder
+      const folder = await drive.files.get({ 
+        fileId: CONFIG.GOOGLE_DRIVE_FOLDER_ID,
+        fields: 'id, name, createdTime, permissions'
+      });
+      
+      logger.info(`✅ Drive folder access successful: "${folder.data.name}"`);
+      logger.info(`   Folder ID: ${CONFIG.GOOGLE_DRIVE_FOLDER_ID}`);
+      logger.info(`   Created: ${folder.data.createdTime}`);
+      
+      // Test write access by creating a test file
+      const testFile = await drive.files.create({
+        requestBody: {
+          name: 'test-connection.txt',
+          parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
+        },
+        media: {
+          mimeType: 'text/plain',
+          body: 'Test connection file - can be deleted'
+        }
+      });
+      
+      // Delete the test file
+      await drive.files.delete({ fileId: testFile.data.id });
+      
+      logger.info('📁 Drive write test successful');
+      
       return true;
     } catch (error) {
+      if (error.code === 404) {
+        throw new Error(`Drive folder not found. Make sure the folder ID is correct and the folder is shared with your Google account.`);
+      } else if (error.code === 403) {
+        throw new Error(`Permission denied. Make sure the drive folder is shared with your Google account with edit permissions.`);
+      }
       throw new Error(`Drive connection test failed: ${error.message}`);
     }
   }
 
   async uploadFile(fileBuffer, filename, mimeType = 'application/pdf') {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const drive = google.drive({ version: 'v3', auth });
       
       const cleanFilename = filename.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_');
@@ -104,11 +93,18 @@ export class DriveService {
   }
 
   async convertPDFToText(fileBuffer, filename) {
-    // Simplified version - just return basic info for now
-    return {
-      text: `PDF file: ${filename} - OCR temporarily disabled`,
-      originalText: '',
-      length: 0
-    };
+    try {
+      // For now, we'll use a simple approach - just store the PDF
+      // Google Drive API doesn't provide direct OCR, but we could use Google Cloud Vision API
+      logger.info(`📄 PDF stored: ${filename} (OCR not implemented in this version)`);
+      
+      return {
+        text: `PDF file: ${filename} - OCR not implemented in OAuth2 version`,
+        originalText: '',
+        length: 0
+      };
+    } catch (error) {
+      throw new Error(`PDF text conversion failed: ${error.message}`);
+    }
   }
 }

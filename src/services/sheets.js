@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { OAuth2AuthService } from './oauth-auth.js';
 import { CONFIG } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -6,37 +7,12 @@ const logger = createLogger();
 
 export class SheetsService {
   constructor() {
-    try {
-      logger.info('📊 Initializing Google Sheets service...');
-      
-      // Use the already parsed credentials from CONFIG
-      const credentials = CONFIG.GOOGLE_CREDENTIALS;
-      
-      logger.info(`   Service Account: ${credentials.client_email}`);
-      logger.info(`   Project: ${credentials.project_id}`);
-      
-      this.auth = new google.auth.GoogleAuth({
-        credentials, // Use the already parsed object
-        scopes: [
-          'https://www.googleapis.com/auth/spreadsheets',
-          'https://www.googleapis.com/auth/drive.file'
-        ],
-        subject: CONFIG.GMAIL_USER_EMAIL
-      });
-      
-      this.sheets = google.sheets({ version: 'v4' });
-      
-      logger.info('📊 Google Sheets service initialized successfully');
-      
-    } catch (error) {
-      logger.error('❌ Sheets service initialization failed:', error);
-      throw new Error(`Sheets service initialization failed: ${error.message}`);
-    }
+    this.authService = new OAuth2AuthService();
   }
 
   async testConnection() {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
       const response = await sheets.spreadsheets.get({ 
@@ -44,7 +20,10 @@ export class SheetsService {
       });
       
       logger.info(`✅ Sheet access successful: "${response.data.properties.title}"`);
+      logger.info(`   Sheet ID: ${CONFIG.GOOGLE_SHEET_ID}`);
+      logger.info(`   Created: ${response.data.properties.createdTime}`);
       
+      // Test read access
       const readTest = await sheets.spreadsheets.values.get({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
         range: 'A1:Z1'
@@ -54,13 +33,50 @@ export class SheetsService {
       
       return true;
     } catch (error) {
+      if (error.code === 404) {
+        throw new Error(`Sheet not found. Make sure the sheet ID is correct and the sheet is shared with your Google account.`);
+      } else if (error.code === 403) {
+        throw new Error(`Permission denied. Make sure the sheet is shared with your Google account with edit permissions.`);
+      }
       throw new Error(`Sheets connection test failed: ${error.message}`);
+    }
+  }
+
+  async initializeSheet() {
+    try {
+      const auth = await this.authService.getAuthClient();
+      const sheets = google.sheets({ version: 'v4', auth });
+      
+      // Check if headers exist
+      const response = await sheets.spreadsheets.values.get({
+        spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
+        range: 'A1:M1'
+      });
+      
+      if (!response.data.values || response.data.values.length === 0) {
+        // Add headers
+        await sheets.spreadsheets.values.update({
+          spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
+          range: 'A1:M1',
+          valueInputOption: 'RAW',
+          requestBody: {
+            values: [CONFIG.SHEET_HEADERS]
+          }
+        });
+        
+        logger.info('📊 Added headers to sheet');
+      } else {
+        logger.info('📊 Headers already exist in sheet');
+      }
+    } catch (error) {
+      logger.error('❌ Error initializing sheet:', error);
+      throw error;
     }
   }
 
   async appendApplicant(applicantData) {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
       const rowData = [
@@ -97,7 +113,7 @@ export class SheetsService {
 
   async getApplicantCount() {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
       const response = await sheets.spreadsheets.values.get({

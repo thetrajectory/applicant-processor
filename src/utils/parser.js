@@ -18,9 +18,17 @@ export class EmailParser {
     const body = message.body.toLowerCase();
     const from = message.from.toLowerCase();
     
-    return this.linkedInPatterns.some(pattern => 
+    const isLinkedIn = this.linkedInPatterns.some(pattern => 
       pattern.test(subject) || pattern.test(body) || pattern.test(from)
     );
+    
+    if (isLinkedIn) {
+      logger.debug(`✅ LinkedIn application detected: ${message.subject}`);
+    } else {
+      logger.debug(`❌ Not a LinkedIn application: ${message.subject}`);
+    }
+    
+    return isLinkedIn;
   }
 
   parseLinkedInApplication(message) {
@@ -43,12 +51,14 @@ export class EmailParser {
     const subjectNameMatch = subject.match(/from\s+(.+)$/i);
     if (subjectNameMatch) {
       result.name = subjectNameMatch[1].trim();
+      logger.debug(`📝 Name extracted from subject: ${result.name}`);
     }
     
     // Extract title from subject (job position)
     const subjectTitleMatch = subject.match(/New application:\s*(.+?)\s+from/i);
     if (subjectTitleMatch) {
       result.title = subjectTitleMatch[1].trim();
+      logger.debug(`💼 Title extracted from subject: ${result.title}`);
     }
     
     // Enhanced location extraction
@@ -66,6 +76,7 @@ export class EmailParser {
         
         if (this.isValidLocation(potentialLocation)) {
           result.location = potentialLocation;
+          logger.debug(`📍 Location extracted: ${result.location}`);
           break;
         }
       }
@@ -89,6 +100,7 @@ export class EmailParser {
         
         if (screeningText.length > 5) {
           result.screening_questions = screeningText;
+          logger.debug(`❓ Screening questions extracted: ${screeningText.substring(0, 100)}...`);
           break;
         }
       }
@@ -105,6 +117,7 @@ export class EmailParser {
       const compensationMatch = emailBody.match(pattern);
       if (compensationMatch && compensationMatch[1]) {
         result.expected_compensation = compensationMatch[1].trim();
+        logger.debug(`💰 Compensation extracted: ${result.expected_compensation}`);
         break;
       }
     }
@@ -114,6 +127,7 @@ export class EmailParser {
                           htmlBody.match(/project[=:](\d+)/i);
     if (projectIdMatch) {
       result.project_id = projectIdMatch[1];
+      logger.debug(`🆔 Project ID extracted: ${result.project_id}`);
     }
     
     logger.info(`📋 Parsed data: ${JSON.stringify(result, null, 2)}`);

@@ -1,4 +1,5 @@
 import { google } from 'googleapis';
+import { OAuth2AuthService } from './oauth-auth.js';
 import { CONFIG } from '../config.js';
 import { createLogger } from '../utils/logger.js';
 
@@ -6,45 +7,20 @@ const logger = createLogger();
 
 export class GmailService {
   constructor() {
-    try {
-      logger.info('📧 Initializing Gmail service...');
-      
-      // Use the already parsed credentials from CONFIG
-      const credentials = CONFIG.GOOGLE_CREDENTIALS;
-      
-      logger.info(`   Service Account: ${credentials.client_email}`);
-      logger.info(`   Impersonating User: ${CONFIG.GMAIL_USER_EMAIL}`);
-      logger.info(`   Project: ${credentials.project_id}`);
-      logger.info(`   Client ID: ${credentials.client_id}`);
-      
-      this.auth = new google.auth.GoogleAuth({
-        credentials, // Use the already parsed object
-        scopes: [
-          'https://www.googleapis.com/auth/gmail.readonly',
-          'https://www.googleapis.com/auth/gmail.modify'
-        ],
-        subject: CONFIG.GMAIL_USER_EMAIL
-      });
-      
-      this.gmail = google.gmail({ version: 'v1' });
-      
-      logger.info('📧 Gmail service initialized successfully');
-      
-    } catch (error) {
-      logger.error('❌ Gmail service initialization failed:', error);
-      throw new Error(`Gmail service initialization failed: ${error.message}`);
-    }
+    this.authService = new OAuth2AuthService();
   }
 
   async testConnection() {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const gmail = google.gmail({ version: 'v1', auth });
       
       const profile = await gmail.users.getProfile({ userId: 'me' });
       
       logger.info('✅ Gmail connection successful');
       logger.info(`   Email Address: ${profile.data.emailAddress}`);
+      logger.info(`   Messages Total: ${profile.data.messagesTotal}`);
+      logger.info(`   Threads Total: ${profile.data.threadsTotal}`);
       
       return true;
     } catch (error) {
@@ -52,41 +28,54 @@ export class GmailService {
     }
   }
 
-  // In gmail.js, update the getLatestEmails method
-async getLatestEmails(maxResults = 50) {
+  async getLatestEmails(maxResults = 50) {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const gmail = google.gmail({ version: 'v1', auth });
-      
-      // Test basic access first
-      logger.info('🔍 Testing Gmail profile access...');
-      const profile = await gmail.users.getProfile({ userId: 'me' });
-      logger.info(`✅ Gmail profile accessible: ${profile.data.emailAddress}`);
       
       const query = [
         'from:(linkedin.com OR jobs-noreply@linkedin.com)',
         'subject:("new application" OR "job application")',
-        'is:unread',
         `newer_than:${CONFIG.MAX_EMAIL_AGE_DAYS}d`
       ].join(' ');
       
-      logger.info(`🔍 Gmail query: ${query}`);
+      logger.info(`🔍 Searching for emails with query: ${query}`);
       
       const response = await gmail.users.messages.list({
         userId: 'me',
         maxResults,
         q: query
       });
-  
-      // ... rest of the method
+
+      if (!response.data.messages) {
+        logger.info('📭 No messages found matching the criteria');
+        return [];
+      }
+
+      logger.info(`📧 Found ${response.data.messages.length} messages, fetching details...`);
+
+      const messages = await Promise.all(
+        response.data.messages.map(async (message) => {
+          try {
+            const details = await gmail.users.messages.get({
+              userId: 'me',
+              id: message.id,
+              format: 'full'
+            });
+            
+            return this.parseMessage(details.data);
+          } catch (error) {
+            logger.error(`Error fetching message ${message.id}:`, error);
+            return null;
+          }
+        })
+      );
+
+      const validMessages = messages.filter(Boolean);
+      logger.info(`✅ Successfully parsed ${validMessages.length} messages`);
+      
+      return validMessages;
     } catch (error) {
-      logger.error('❌ Detailed Gmail error:', {
-        message: error.message,
-        code: error.code,
-        status: error.status,
-        details: error.details || 'No additional details',
-        stack: error.stack
-      });
       throw new Error(`Gmail API error: ${error.message}`);
     }
   }
@@ -159,7 +148,7 @@ async getLatestEmails(maxResults = 50) {
 
   async downloadAttachment(messageId, attachmentId) {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const gmail = google.gmail({ version: 'v1', auth });
       
       const response = await gmail.users.messages.attachments.get({
@@ -176,7 +165,7 @@ async getLatestEmails(maxResults = 50) {
 
   async markAsRead(messageId) {
     try {
-      const auth = await this.auth.getClient();
+      const auth = await this.authService.getAuthClient();
       const gmail = google.gmail({ version: 'v1', auth });
       
       await gmail.users.messages.modify({

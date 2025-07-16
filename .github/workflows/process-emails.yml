@@ -1,4 +1,4 @@
-name: 🔥 Process Applicant Emails
+name: 🔥 Process Applicant Emails (OAuth2)
 
 on:
   schedule:
@@ -39,6 +39,15 @@ jobs:
 
       - name: 🚀 Process Applicant Emails
         env:
+          # OAuth2 Configuration
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+
+          # Google Resources
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+
           # Supabase Configuration
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
@@ -46,16 +55,12 @@ jobs:
           # OpenAI Configuration
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
 
-          # Google Services Configuration
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
-
           # Application Configuration
           BATCH_SIZE: ${{ vars.BATCH_SIZE || '50' }}
           MAX_EMAIL_AGE_DAYS: ${{ vars.MAX_EMAIL_AGE_DAYS || '7' }}
           DEBUG_MODE: ${{ vars.DEBUG_MODE || 'false' }}
+          ENABLE_OCR: ${{ vars.ENABLE_OCR || 'true' }}
+          ENABLE_GPT: ${{ vars.ENABLE_GPT || 'true' }}
 
         run: node src/main.js
 
@@ -81,7 +86,7 @@ jobs:
           echo "::error::Email processing failed in run ${{ github.run_id }}"
           echo "Check the logs for more details"
 
-  # Optional: Health check job
+  # Health check job (optional)
   health-check:
     name: 🏥 System Health Check
     runs-on: ubuntu-latest
@@ -102,11 +107,12 @@ jobs:
 
       - name: 🔍 Run Health Checks
         env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GOOGLE_CREDENTIALS: ${{ secrets.GOOGLE_CREDENTIALS }}
-          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
-          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
-          GMAIL_USER_EMAIL: ${{ secrets.GMAIL_USER_EMAIL }}
         run: node src/health-check.js

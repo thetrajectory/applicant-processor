@@ -5,54 +5,6 @@ if (process.env.NODE_ENV !== 'production') {
   dotenv.config();
 }
 
-// Helper function to decode Google credentials
-function getGoogleCredentials() {
-  const credentials = process.env.GOOGLE_CREDENTIALS;
-  
-  if (!credentials) {
-    throw new Error('GOOGLE_CREDENTIALS environment variable not set');
-  }
-  
-  try {
-    // Try to parse as JSON first
-    const parsed = JSON.parse(credentials);
-    
-    // Verify it has required fields
-    if (!parsed.client_email) {
-      throw new Error('Google credentials missing client_email field');
-    }
-    
-    console.log('✅ Google credentials parsed successfully');
-    console.log(`   Service Account: ${parsed.client_email}`);
-    console.log(`   Project ID: ${parsed.project_id}`);
-    console.log(`   Client ID: ${parsed.client_id}`);
-    
-    return parsed;
-  } catch (jsonError) {
-    try {
-      // If JSON parsing fails, try base64 decode
-      console.log('⚠️ JSON parsing failed, trying base64 decode...');
-      const decoded = Buffer.from(credentials, 'base64').toString('utf8');
-      const parsed = JSON.parse(decoded);
-      
-      if (!parsed.client_email) {
-        throw new Error('Decoded Google credentials missing client_email field');
-      }
-      
-      console.log('✅ Google credentials parsed as Base64');
-      console.log(`   Service Account: ${parsed.client_email}`);
-      
-      return parsed;
-    } catch (base64Error) {
-      console.error('❌ Failed to parse Google credentials as JSON:', jsonError.message);
-      console.error('❌ Failed to parse Google credentials as Base64:', base64Error.message);
-      console.error('❌ Raw credentials length:', credentials.length);
-      console.error('❌ First 100 chars:', credentials.substring(0, 100));
-      throw new Error('Invalid GOOGLE_CREDENTIALS format. Must be valid JSON or base64-encoded JSON');
-    }
-  }
-}
-
 export const CONFIG = {
   // Environment detection
   IS_LOCAL: !process.env.GITHUB_ACTIONS,
@@ -79,11 +31,16 @@ export const CONFIG = {
   TABLE_NAME: process.env.GITHUB_ACTIONS ? 'applicant_details' : 'applicant_details_test',
   PROCESSED_MESSAGES_TABLE: process.env.GITHUB_ACTIONS ? 'processed_messages' : 'processed_messages_test',
   
-  // Google Services - Call the helper function here
-  GOOGLE_CREDENTIALS: getGoogleCredentials(),
+  // OAuth2 Configuration
+  GOOGLE_OAUTH_CONFIG: {
+    client_id: process.env.GOOGLE_CLIENT_ID,
+    client_secret: process.env.GOOGLE_CLIENT_SECRET,
+    refresh_token: process.env.GOOGLE_REFRESH_TOKEN
+  },
+  
+  // Google Resources
   GOOGLE_SHEET_ID: process.env.GOOGLE_SHEET_ID,
   GOOGLE_DRIVE_FOLDER_ID: process.env.GOOGLE_DRIVE_FOLDER_ID,
-  GMAIL_USER_EMAIL: process.env.GMAIL_USER_EMAIL,
   
   // Application Settings
   DEBUG_MODE: process.env.DEBUG_MODE === 'true' || !process.env.GITHUB_ACTIONS,
@@ -117,15 +74,16 @@ If any field is not found, use null. Return only the JSON object, no explanatory
 Resume text:`
 };
 
-// Environment variable validation with better error handling
+// Environment variable validation
 const requiredEnvVars = [
   { name: 'SUPABASE_URL', description: 'Supabase project URL' },
   { name: 'SUPABASE_KEY', description: 'Supabase service role key' },
   { name: 'OPENAI_API_KEY', description: 'OpenAI API key for GPT' },
-  { name: 'GOOGLE_CREDENTIALS', description: 'Google service account JSON credentials' },
+  { name: 'GOOGLE_CLIENT_ID', description: 'Google OAuth2 client ID' },
+  { name: 'GOOGLE_CLIENT_SECRET', description: 'Google OAuth2 client secret' },
+  { name: 'GOOGLE_REFRESH_TOKEN', description: 'Google OAuth2 refresh token' },
   { name: 'GOOGLE_SHEET_ID', description: 'Google Sheets ID for data storage' },
-  { name: 'GOOGLE_DRIVE_FOLDER_ID', description: 'Google Drive folder ID for file storage' },
-  { name: 'GMAIL_USER_EMAIL', description: 'Gmail user email to impersonate' }
+  { name: 'GOOGLE_DRIVE_FOLDER_ID', description: 'Google Drive folder ID for file storage' }
 ];
 
 // Check for missing environment variables
@@ -142,6 +100,14 @@ if (missingVars.length > 0) {
     console.error('');
   });
   
+  if (missingVars.some(v => v.name.includes('GOOGLE'))) {
+    console.error('💡 To setup Google OAuth2 credentials:');
+    console.error('   1. Run: npm run setup');
+    console.error('   2. Follow the OAuth2 setup process');
+    console.error('   3. Add the tokens to your environment');
+    console.error('');
+  }
+  
   throw new Error(`Missing ${missingVars.length} required environment variable(s): ${missingVars.map(v => v.name).join(', ')}`);
 }
 
@@ -151,5 +117,6 @@ if (CONFIG.DEBUG_MODE && CONFIG.IS_LOCAL) {
   console.log(`   Environment: ${CONFIG.IS_GITHUB_ACTIONS ? 'GitHub Actions' : 'Local'}`);
   console.log(`   Debug Mode: ${CONFIG.DEBUG_MODE}`);
   console.log(`   Batch Size: ${CONFIG.BATCH_SIZE}`);
+  console.log(`   OAuth2 Client ID: ${CONFIG.GOOGLE_OAUTH_CONFIG.client_id?.substring(0, 20)}...`);
   console.log(`   All required environment variables are present`);
 }

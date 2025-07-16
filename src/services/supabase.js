@@ -8,6 +8,7 @@ export class SupabaseService {
   constructor() {
     try {
       this.supabase = createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+      logger.info('💾 Supabase client initialized');
     } catch (error) {
       throw new Error(`Supabase initialization failed: ${error.message}`);
     }
@@ -15,12 +16,33 @@ export class SupabaseService {
 
   async testConnection() {
     try {
+      // Test database connection
       const { data, error } = await this.supabase
         .from(CONFIG.TABLE_NAME)
         .select('count')
         .limit(1);
       
-      if (error) throw error;
+      if (error) {
+        if (error.code === 'PGRST116') {
+          throw new Error(`Table "${CONFIG.TABLE_NAME}" does not exist. Please create it first.`);
+        }
+        throw error;
+      }
+      
+      logger.info('✅ Supabase connection successful');
+      logger.info(`   Database: ${CONFIG.SUPABASE_URL}`);
+      logger.info(`   Table: ${CONFIG.TABLE_NAME}`);
+      
+      // Test processed messages table
+      const { error: processedError } = await this.supabase
+        .from(CONFIG.PROCESSED_MESSAGES_TABLE)
+        .select('count')
+        .limit(1);
+      
+      if (processedError && processedError.code === 'PGRST116') {
+        logger.warn(`⚠️ Table "${CONFIG.PROCESSED_MESSAGES_TABLE}" does not exist - will be created automatically`);
+      }
+      
       return true;
     } catch (error) {
       throw new Error(`Supabase connection test failed: ${error.message}`);
@@ -49,51 +71,51 @@ export class SupabaseService {
         .from(CONFIG.TABLE_NAME)
         .upsert([{
           email: applicantData.email,
-          name: applicantData.name,
-          title: applicantData.title,
-          location: applicantData.location,
-          expected_compensation: applicantData.expected_compensation,
-          project_id: applicantData.project_id,
-          screening_questions: applicantData.screening_questions,
-          resume_raw_text: applicantData.resume_raw_text,
-          resume_drive_link: applicantData.resume_drive_link,
-          mobile_number: applicantData.mobile_number,
-          linkedin_url: applicantData.linkedin_url,
-          processed_at: applicantData.processed_at,
-          source_message_id: applicantData.source_message_id,
-          processing_time_ms: applicantData.processing_time_ms
-        }], {
-          onConflict: 'email'
-        })
-        .select();
-      
-      if (error) throw error;
-      
-      logger.info(`💾 Applicant stored in Supabase: ${applicantData.email}`);
-      return data[0];
-    } catch (error) {
-      throw new Error(`Supabase create applicant failed: ${error.message}`);
-    }
-  }
+         name: applicantData.name,
+         title: applicantData.title,
+         location: applicantData.location,
+         expected_compensation: applicantData.expected_compensation,
+         project_id: applicantData.project_id,
+         screening_questions: applicantData.screening_questions,
+         resume_raw_text: applicantData.resume_raw_text,
+         resume_drive_link: applicantData.resume_drive_link,
+         mobile_number: applicantData.mobile_number,
+         linkedin_url: applicantData.linkedin_url,
+         processed_at: applicantData.processed_at,
+         source_message_id: applicantData.source_message_id,
+         processing_time_ms: applicantData.processing_time_ms
+       }], {
+         onConflict: 'email'
+       })
+       .select();
+     
+     if (error) throw error;
+     
+     logger.info(`💾 Applicant stored in Supabase: ${applicantData.email}`);
+     return data[0];
+   } catch (error) {
+     throw new Error(`Supabase create applicant failed: ${error.message}`);
+   }
+ }
 
-  async getApplicantStats() {
-    try {
-      const { data, error } = await this.supabase
-        .from(CONFIG.TABLE_NAME)
-        .select('email, processed_at, mobile_number, linkedin_url, resume_drive_link');
-      
-      if (error) throw error;
-      
-      return {
-        total: data.length,
-        withMobile: data.filter(a => a.mobile_number).length,
-        withLinkedIn: data.filter(a => a.linkedin_url).length,
-        withResume: data.filter(a => a.resume_drive_link).length,
-        latest: data.length > 0 ? data.sort((a, b) => new Date(b.processed_at) - new Date(a.processed_at))[0] : null
-      };
-    } catch (error) {
-      logger.error(`Error getting applicant stats:`, error);
-      return { total: 0, withMobile: 0, withLinkedIn: 0, withResume: 0, latest: null };
-    }
-  }
+ async getApplicantStats() {
+   try {
+     const { data, error } = await this.supabase
+       .from(CONFIG.TABLE_NAME)
+       .select('email, processed_at, mobile_number, linkedin_url, resume_drive_link');
+     
+     if (error) throw error;
+     
+     return {
+       total: data.length,
+       withMobile: data.filter(a => a.mobile_number).length,
+       withLinkedIn: data.filter(a => a.linkedin_url).length,
+       withResume: data.filter(a => a.resume_drive_link).length,
+       latest: data.length > 0 ? data.sort((a, b) => new Date(b.processed_at) - new Date(a.processed_at))[0] : null
+     };
+   } catch (error) {
+     logger.error(`Error getting applicant stats:`, error);
+     return { total: 0, withMobile: 0, withLinkedIn: 0, withResume: 0, latest: null };
+   }
+ }
 }

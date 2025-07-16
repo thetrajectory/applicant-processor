@@ -11,6 +11,7 @@ export class OpenAIService {
         apiKey: process.env.OPENAI_API_KEY,
         timeout: CONFIG.GPT_TIMEOUT
       });
+      logger.info('🤖 OpenAI service initialized');
     } catch (error) {
       throw new Error(`OpenAI initialization failed: ${error.message}`);
     }
@@ -23,6 +24,10 @@ export class OpenAIService {
         messages: [{ role: 'user', content: 'Hello' }],
         max_tokens: 5
       });
+      
+      logger.info('✅ OpenAI connection successful');
+      logger.info(`   Model: ${CONFIG.GPT_MODEL}`);
+      logger.info(`   Response: ${response.choices[0].message.content}`);
       
       return response.choices.length > 0;
     } catch (error) {
@@ -37,6 +42,8 @@ export class OpenAIService {
     }
 
     try {
+      logger.info('🤖 Extracting contact info with GPT...');
+      
       const response = await this.openai.chat.completions.create({
         model: CONFIG.GPT_MODEL,
         messages: [
@@ -72,7 +79,10 @@ export class OpenAIService {
       return validatedInfo;
       
     } catch (error) {
-      logger.error(`❌ GPT extraction error:`, error);
+      logger.error(`❌ GPT extraction error:`, {
+        message: error.message,
+        resumeLength: resumeText?.length || 0
+      });
       return { mobile_number: null, email: null, linkedin_url: null };
     }
   }
