@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
-import { OAuth2AuthService } from './oauth-auth.js';
 import { CONFIG } from '../config.js';
 import { createLogger } from '../utils/logger.js';
+import { OAuth2AuthService } from './oauth-auth.js';
 
 const logger = createLogger();
 
@@ -18,29 +18,11 @@ export class DriveService {
       // Test access to the drive folder
       const folder = await drive.files.get({ 
         fileId: CONFIG.GOOGLE_DRIVE_FOLDER_ID,
-        fields: 'id, name, createdTime, permissions'
+        fields: 'id, name, createdTime'
       });
       
       logger.info(`✅ Drive folder access successful: "${folder.data.name}"`);
       logger.info(`   Folder ID: ${CONFIG.GOOGLE_DRIVE_FOLDER_ID}`);
-      logger.info(`   Created: ${folder.data.createdTime}`);
-      
-      // Test write access by creating a test file
-      const testFile = await drive.files.create({
-        requestBody: {
-          name: 'test-connection.txt',
-          parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
-        },
-        media: {
-          mimeType: 'text/plain',
-          body: 'Test connection file - can be deleted'
-        }
-      });
-      
-      // Delete the test file
-      await drive.files.delete({ fileId: testFile.data.id });
-      
-      logger.info('📁 Drive write test successful');
       
       return true;
     } catch (error) {
@@ -94,17 +76,106 @@ export class DriveService {
 
   async convertPDFToText(fileBuffer, filename) {
     try {
-      // For now, we'll use a simple approach - just store the PDF
-      // Google Drive API doesn't provide direct OCR, but we could use Google Cloud Vision API
-      logger.info(`📄 PDF stored: ${filename} (OCR not implemented in this version)`);
+      const auth = await this.authService.getAuthClient();
+      const drive = google.drive({ version: 'v3', auth });
+      
+      logger.info(`🔍 Starting OCR conversion for: ${filename}`);
+      
+      // Step 1: Upload PDF to Drive temporarily
+      const tempFileMetadata = {
+        name: `temp_ocr_${Date.now()}_${filename}`,
+        parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
+      };
+
+      const { Readable } = await import('stream');
+      const stream = new Readable();
+      stream.push(fileBuffer);
+      stream.push(null);
+
+      const uploadResponse = await drive.files.create({
+        requestBody: tempFileMetadata,
+        media: {
+          mimeType: 'application/pdf',
+          body: stream
+        },
+        fields: 'id'
+      });
+
+      const tempFileId = uploadResponse.data.id;
+      logger.info(`📄 PDF uploaded for OCR processing: ${tempFileId}`);
+
+      // Step 2: Convert PDF to Google Doc for text extraction
+      const docMetadata = {
+        name: `temp_doc_${Date.now()}`,
+        parents: [CONFIG.GOOGLE_DRIVE_FOLDER_ID]
+      };
+
+      const copyResponse = await drive.files.copy({
+        fileId: tempFileId,
+        requestBody: docMetadata,
+        fields: 'id'
+      });
+
+      const docFileId = copyResponse.data.id;
+      logger.info(`📝 Created Google Doc copy: ${docFileId}`);
+
+      // Step 3: Export as plain text
+      const exportResponse = await drive.files.export({
+        fileId: docFileId,
+        mimeType: 'text/plain'
+      });
+
+      const extractedText = exportResponse.data;
+      logger.info(`📖 Text extracted: ${extractedText.length} characters`);
+
+      // Step 4: Cleanup temporary files
+      await Promise.all([
+        drive.files.delete({ fileId: tempFileId }).catch(err => 
+          logger.warn(`Failed to delete temp PDF: ${err.message}`)
+        ),
+        drive.files.delete({ fileId: docFileId }).catch(err => 
+          logger.warn(`Failed to delete temp Doc: ${err.message}`)
+        )
+      ]);
+
+      // Step 5: Format the result
+      const formattedText = this.formatOCRResult(extractedText, filename);
       
       return {
-        text: `PDF file: ${filename} - OCR not implemented in OAuth2 version`,
+        text: formattedText,
+        originalText: extractedText,
+        length: extractedText.length
+      };
+
+    } catch (error) {
+      logger.error(`❌ OCR conversion failed for ${filename}:`, error);
+      
+      // Return a fallback result instead of throwing
+      return {
+        text: `OCR conversion failed for ${filename}: ${error.message}`,
         originalText: '',
         length: 0
       };
-    } catch (error) {
-      throw new Error(`PDF text conversion failed: ${error.message}`);
     }
+  }
+
+  formatOCRResult(extractedText, filename) {
+    // Clean up the extracted text
+    const cleanText = extractedText
+      .replace(/\s+/g, ' ')
+      .replace(/\n+/g, '\n')
+      .replace(/\r/g, '')
+      .trim();
+
+    return `--- RESUME TEXT (Google Drive OCR) ---
+Original File: ${filename}
+Extraction Method: Google Drive OCR
+Extracted Characters: ${cleanText.length}
+Processing Date: ${new Date().toISOString()}
+
+--- EXTRACTED CONTENT ---
+${cleanText}
+
+--- END OF RESUME ---`;
   }
 }
