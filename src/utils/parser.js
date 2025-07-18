@@ -142,30 +142,58 @@ export class EmailParser {
     const cleanBody = this.cleanTextForParsing(emailBody);
     const cleanHtml = this.cleanTextForParsing(htmlBody);
     
+    // Define location patterns in smaller, manageable chunks
     const locationPatterns = [
-      // Most comprehensive patterns for Indian locations
-      /(?:location|address|based|from|in|at)[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*India)/i,
+      // International locations - City, Country format
+      /(?:location|address|based|from|in|at)[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/i,
+      
+      // Indonesian locations specifically
+      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*Indonesia)/i,
+      /\b(Banten|Jakarta|West Java|East Java|Central Java|Yogyakarta|Bali|Sumatra|Kalimantan|Sulawesi|Papua|Aceh|North Sumatra|South Sumatra|Lampung|Bengkulu|Jambi|Riau|West Sumatra|Bangka Belitung|West Kalimantan|Central Kalimantan|South Kalimantan|East Kalimantan|North Kalimantan|North Sulawesi|Central Sulawesi|South Sulawesi|Southeast Sulawesi|Gorontalo|West Sulawesi|Maluku|North Maluku|West Papua),?\s*Indonesia\b/i,
+      
+      // Southeast Asian countries
+      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:Singapore|Malaysia|Thailand|Philippines|Vietnam|Cambodia|Myanmar|Laos|Brunei))/i,
+      
+      // Major Asian countries
+      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:Australia|New Zealand|Japan|South Korea|China|Hong Kong|Taiwan))/i,
+      
+      // Indian states (keeping existing patterns)
       /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:Andhra Pradesh|Arunachal Pradesh|Assam|Bihar|Chhattisgarh|Goa|Gujarat|Haryana|Himachal Pradesh|Jharkhand|Karnataka|Kerala|Madhya Pradesh|Maharashtra|Manipur|Meghalaya|Mizoram|Nagaland|Odisha|Punjab|Rajasthan|Sikkim|Tamil Nadu|Telangana|Tripura|Uttar Pradesh|Uttarakhand|West Bengal|Delhi|NCR),?\s*India)/i,
       
-      // City, State format
-      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:Punjab|Delhi|Mumbai|Bangalore|Hyderabad|Chennai|Kolkata|Pune|Ahmedabad|Surat|Jaipur|Lucknow|Kanpur|Nagpur|Indore|Thane|Bhopal|Visakhapatnam|Patiala|Chandigarh|Gurgaon|Noida|Faridabad|Ghaziabad|Karnataka|Tamil Nadu|Andhra Pradesh|Telangana|Kerala|Maharashtra|Gujarat|Rajasthan|West Bengal|Bihar|Jharkhand|Odisha|Assam|Himachal Pradesh|Uttarakhand|Haryana|Uttar Pradesh|Madhya Pradesh))/i,
+      // Western countries
+      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:United States|USA|Canada|United Kingdom|UK|Germany|France|Italy|Spain|Netherlands|Belgium|Sweden|Norway|Denmark|Finland|Switzerland|Austria|Poland|Czech Republic|Hungary|Romania|Bulgaria|Greece|Turkey|Russia|Ukraine))/i,
       
-      // Major cities with variations
-      /((?:Bangalore|Bengaluru|Mumbai|Bombay|Delhi|New Delhi|Hyderabad|Chennai|Madras|Kolkata|Calcutta|Pune|Ahmedabad|Surat|Jaipur|Lucknow|Kanpur|Nagpur|Indore|Thane|Bhopal|Visakhapatnam|Vishakhapatnam|Patiala|Chandigarh|Gurgaon|Gurugram|Noida|Faridabad|Ghaziabad|Coimbatore|Kochi|Cochin|Thiruvananthapuram|Trivandrum|Madurai|Salem|Tiruppur|Erode|Vellore|Tiruchirappalli|Trichy)(?:\s*,\s*(?:Karnataka|Tamil Nadu|Andhra Pradesh|Telangana|Kerala|Maharashtra|Gujarat|Rajasthan|West Bengal|Bihar|Jharkhand|Odisha|Assam|Himachal Pradesh|Uttarakhand|Haryana|Uttar Pradesh|Madhya Pradesh|Punjab|Delhi|NCR))?(?:\s*,\s*India)?)/i,
+      // Americas and others
+      /([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*(?:Brazil|Argentina|Chile|Colombia|Peru|Mexico|South Africa|Egypt|Nigeria|Kenya|Morocco|Algeria|Tunisia))/i,
       
-      // After name or profile info
-      /(?:^|\n)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*[,\n]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*[,\n]\s*India/im,
+      // Major Indonesian cities without country
+      /\b(Jakarta|Surabaya|Bandung|Medan|Semarang|Makassar|Palembang|Tangerang|Depok|Bekasi|Banten|Yogyakarta|Denpasar|Balikpapan|Samarinda|Manado|Pontianak|Banjarmasin|Pekanbaru|Padang|Batam|Bogor|Malang|Cilegon|Serang)\b/i,
       
-      // In applicant details
-      /applicant.*?(?:location|from|based)[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)*)/is,
+      // Major global cities without country
+      /\b(Singapore|Bangkok|Manila|Sydney|Melbourne|Tokyo|Seoul|Hong Kong|Taipei|Shanghai|Beijing|Mumbai|Delhi|Bangalore|Chennai|London|Paris|Berlin|Amsterdam|Stockholm|Oslo|Copenhagen|Helsinki|Zurich|Vienna|Warsaw|Prague|Budapest|Rome|Milan|Madrid|Barcelona|Brussels|Dublin|Lisbon|Moscow|Istanbul|Dubai|Tel Aviv|Cairo|Cape Town|Toronto|Vancouver|New York|Los Angeles|Chicago|San Francisco|Boston|Seattle)\b/i,
       
-      // Simple city names in context
-      /(?:from|in|at|based)\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*(?:,|$|\n)/i,
+      // After name or profile info - more flexible
+      /(?:^|\n)([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\s*[,\n]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)/im,
       
-      // HTML table data
-      /<td[^>]*>([^<]*(?:Bangalore|Mumbai|Delhi|Hyderabad|Chennai|Pune|Ahmedabad)[^<]*)<\/td>/i
+      // Pattern specifically for LinkedIn format: "Position at Company · Location"
+      /[·•]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)*)\s*$/im,
+      
+      // Location after company name with bullet or separator
+      /@[^·•\n]+[·•]\s*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)*)/i,
+      
+      // In applicant details - more flexible
+      /(?:applicant|candidate).*?(?:location|from|based|address)[:\s]*([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)*)/is,
+      
+      // Simple city names in context - more flexible
+      /(?:from|in|at|based|location)[:\s]+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*(?:,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)*)\s*(?:,|$|\n|•|\||\.)/i,
+      
+      // HTML table data - more flexible
+      /<td[^>]*>([^<]*(?:Indonesia|Singapore|Malaysia|Thailand|Philippines|Vietnam|Australia|Japan|Korea|China|India|USA|Canada|UK|Germany|France)[^<]*)<\/td>/i,
+      
+      // Standalone location with comma format
+      /\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)*,\s*[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*)\b/i
     ];
-
+  
     const sources = [cleanBody, cleanHtml, emailBody, htmlBody];
     
     for (const source of sources) {
@@ -173,11 +201,16 @@ export class EmailParser {
         const match = source.match(pattern);
         if (match) {
           let location;
-          if (match[2]) {
-            // Pattern with city and state
+          
+          // Handle different capture groups
+          if (match[2] && match[1]) {
+            // Two parts: City, Country or State, Country
             location = `${match[1].trim()}, ${match[2].trim()}`;
-          } else {
+          } else if (match[1]) {
+            // Single part
             location = match[1].trim();
+          } else {
+            continue;
           }
           
           location = this.cleanLocation(location);
@@ -376,31 +409,66 @@ export class EmailParser {
   }
 
   isValidLocation(location) {
-    if (!location || location.length < 3 || location.length > 100) return false;
+    if (!location || location.length < 2 || location.length > 150) return false;
     
     const invalidPatterns = [
-      /^(developer|engineer|manager|experience|current|past|software|python|java|react|skills|qualifications|screening|questions|answers|yes|no|true|false)$/i,
+      /^(developer|engineer|manager|experience|current|past|software|python|java|react|skills|qualifications|screening|questions|answers|yes|no|true|false|senior|junior|lead|architect|designer|analyst|consultant|specialist|coordinator|executive|director|intern|trainee)$/i,
       /^\d+$/,
       /^[0-9\s,.-]+$/,
-      /^(new|application|from|job|at|with|for|in|the|and|or|but|your|has|this|that|these|those)$/i
+      /^(new|application|from|job|at|with|for|in|the|and|or|but|your|has|this|that|these|those|view|all|click|here|link|email|message|html|body|subject)$/i
     ];
     
-    const hasValidLocationWords = /(?:india|pakistan|bangladesh|nepal|sri\s*lanka|singapore|malaysia|thailand|city|state|province|punjab|delhi|mumbai|bangalore|bengaluru|hyderabad|chennai|kolkata|pune|ahmedabad|karnataka|tamil\s*nadu|maharashtra|gujarat|andhra\s*pradesh|telangana|kerala|west\s*bengal|rajasthan|bihar|jharkhand|odisha|assam|himachal\s*pradesh|uttarakhand|haryana|uttar\s*pradesh|madhya\s*pradesh|chandigarh|gurgaon|gurugram|noida|faridabad|ghaziabad|patiala)/i.test(location);
+    // Enhanced validation for international locations - broken into smaller patterns
+    const locationKeywords = [
+      // Southeast Asia
+      /\b(?:indonesia|singapore|malaysia|thailand|philippines|vietnam|cambodia|myanmar|laos|brunei)\b/i,
+      
+      // East Asia & Pacific
+      /\b(?:australia|new\s*zealand|japan|south\s*korea|korea|china|hong\s*kong|taiwan)\b/i,
+      
+      // South Asia
+      /\b(?:india|pakistan|bangladesh|sri\s*lanka|nepal)\b/i,
+      
+      // Western countries
+      /\b(?:united\s*states|usa|canada|united\s*kingdom|uk|britain|germany|france|italy|spain|netherlands|belgium|sweden|norway|denmark|finland|switzerland|austria|poland|czech|hungary|romania|bulgaria|greece|turkey|russia|ukraine)\b/i,
+      
+      // Americas & Africa
+      /\b(?:brazil|argentina|chile|colombia|peru|mexico|south\s*africa|egypt|nigeria|kenya|morocco|algeria|tunisia)\b/i,
+      
+      // Location terms
+      /\b(?:city|state|province|region|county|district)\b/i,
+      
+      // Indonesian locations
+      /\b(?:banten|jakarta|west\s*java|east\s*java|central\s*java|yogyakarta|bali|sumatra|kalimantan|sulawesi|papua)\b/i,
+      
+      // Indian locations
+      /\b(?:punjab|delhi|mumbai|bangalore|bengaluru|hyderabad|chennai|kolkata|pune|ahmedabad|karnataka|tamil\s*nadu|maharashtra|gujarat|andhra\s*pradesh|telangana|kerala|west\s*bengal|rajasthan|bihar|jharkhand|odisha|assam)\b/i,
+      
+      // Major global cities
+      /\b(?:london|paris|berlin|amsterdam|tokyo|seoul|beijing|shanghai|sydney|melbourne|toronto|vancouver|new\s*york|los\s*angeles|chicago|san\s*francisco|boston|seattle)\b/i
+    ];
     
+    const hasValidLocationWords = locationKeywords.some(pattern => pattern.test(location));
     const hasCommaFormat = location.includes(',') && location.split(',').length >= 2;
     
-    const isInvalid = invalidPatterns.some(pattern => pattern.test(location));
+    // Check if it contains alphabetic characters
+    const hasAlphaChars = /[a-zA-Z]/.test(location);
     
-    return !isInvalid && (hasValidLocationWords || hasCommaFormat);
+    const isInvalid = invalidPatterns.some(pattern => pattern.test(location.trim()));
+    
+    return !isInvalid && hasAlphaChars && (hasValidLocationWords || hasCommaFormat);
   }
 
   cleanLocation(location) {
     return location
-      .replace(/^[|\s\-•]+/, '')
-      .replace(/[|\s\-•]+$/, '')
-      .replace(/\s+/g, ' ')
-      .replace(/[•\-\|]/g, '')
-      .replace(/,\s*,/g, ',')  // Remove double commas
+      .replace(/^[|\s\-•·]+/, '')        // Remove leading separators
+      .replace(/[|\s\-•·]+$/, '')        // Remove trailing separators  
+      .replace(/\s+/g, ' ')              // Normalize whitespace
+      .replace(/[•\-\|·]/g, '')          // Remove bullet points and separators
+      .replace(/,\s*,/g, ',')            // Remove double commas
+      .replace(/\s*,\s*/g, ', ')         // Normalize comma spacing
+      .replace(/\s+,/g, ',')             // Remove spaces before commas
+      .replace(/,\s*$/, '')              // Remove trailing comma
       .trim();
   }
 

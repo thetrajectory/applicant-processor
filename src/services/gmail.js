@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
-import { OAuth2AuthService } from './oauth-auth.js';
 import { CONFIG } from '../config.js';
 import { createLogger } from '../utils/logger.js';
+import { OAuth2AuthService } from './oauth-auth.js';
 
 const logger = createLogger();
 
@@ -41,22 +41,58 @@ export class GmailService {
       ].join(' ');
       
       logger.info(`🔍 Searching for emails with query: ${query}`);
+      logger.info(`🎯 Target: ${maxResults} messages`);
       
-      const response = await gmail.users.messages.list({
-        userId: 'me',
-        maxResults,
-        q: query
-      });
-
-      if (!response.data.messages) {
-        logger.info('📭 No messages found matching the criteria');
-        return [];
+      let allMessages = [];
+      let pageToken = null;
+      let totalFetched = 0;
+      let pageNumber = 1;
+      
+      // Keep fetching until we have enough messages or no more pages
+      do {
+        const batchSize = Math.min(500, maxResults - totalFetched); // Gmail's max is 500
+        
+        logger.info(`📄 Fetching page ${pageNumber} (up to ${batchSize} messages)${pageToken ? ' with token: ' + pageToken.substring(0, 20) + '...' : ''}`);
+        
+        const response = await gmail.users.messages.list({
+          userId: 'me',
+          maxResults: batchSize,
+          q: query,
+          ...(pageToken && { pageToken })
+        });
+  
+        if (!response.data.messages || response.data.messages.length === 0) {
+          logger.info(`📭 No messages found on page ${pageNumber}`);
+          break;
+        }
+  
+        allMessages = allMessages.concat(response.data.messages);
+        totalFetched += response.data.messages.length;
+        
+        logger.info(`📧 Page ${pageNumber}: Found ${response.data.messages.length} messages (total: ${totalFetched})`);
+        
+        // Set up for next iteration
+        pageToken = response.data.nextPageToken;
+        pageNumber++;
+        
+        // Continue if we need more messages and there's a next page
+      } while (totalFetched < maxResults && pageToken);
+      
+      if (!pageToken && totalFetched < maxResults) {
+        logger.info(`📭 Reached end of available messages. Found ${totalFetched} total messages.`);
       }
-
-      logger.info(`📧 Found ${response.data.messages.length} messages, fetching details...`);
-
-      const messages = await Promise.all(
-        response.data.messages.map(async (message) => {
+  
+      logger.info(`📧 Total messages collected: ${allMessages.length}, fetching details...`);
+  
+      // Process messages in batches to avoid overwhelming the API
+      const batchSize = 50; // Process 50 message details at a time
+      const messages = [];
+      
+      for (let i = 0; i < allMessages.length; i += batchSize) {
+        const batch = allMessages.slice(i, i + batchSize);
+        logger.info(`📥 Processing message details batch ${Math.floor(i/batchSize) + 1}/${Math.ceil(allMessages.length/batchSize)} (${batch.length} messages)`);
+        
+        const batchPromises = batch.map(async (message) => {
           try {
             const details = await gmail.users.messages.get({
               userId: 'me',
@@ -69,11 +105,19 @@ export class GmailService {
             logger.error(`Error fetching message ${message.id}:`, error);
             return null;
           }
-        })
-      );
-
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        messages.push(...batchResults);
+        
+        // Small delay between batches to be nice to the API
+        if (i + batchSize < allMessages.length) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+      }
+  
       const validMessages = messages.filter(Boolean);
-      logger.info(`✅ Successfully parsed ${validMessages.length} messages`);
+      logger.info(`✅ Successfully parsed ${validMessages.length} messages out of ${allMessages.length} total`);
       
       return validMessages;
     } catch (error) {
