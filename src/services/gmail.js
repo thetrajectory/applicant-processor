@@ -41,19 +41,21 @@ export class GmailService {
       ].join(' ');
       
       logger.info(`🔍 Searching for emails with query: ${query}`);
-      logger.info(`🎯 Target: ${maxResults} messages`);
+      logger.info(`🎯 Target: ${maxResults} messages (Batch size set to: ${CONFIG.BATCH_SIZE})`);
       
       let allMessages = [];
       let pageToken = null;
       let totalFetched = 0;
       let pageNumber = 1;
+      let totalApiCalls = 0;
       
       // Keep fetching until we have enough messages or no more pages
       do {
-        const batchSize = Math.min(500, maxResults - totalFetched); // Gmail's max is 500
+        const batchSize = Math.min(500, maxResults - totalFetched); // Gmail's max per request is 500
         
-        logger.info(`📄 Fetching page ${pageNumber} (up to ${batchSize} messages)${pageToken ? ' with token: ' + pageToken.substring(0, 20) + '...' : ''}`);
+        logger.info(`📄 Fetching page ${pageNumber} (requesting ${batchSize} messages)${pageToken ? ' with token: ' + pageToken.substring(0, 20) + '...' : ''}`);
         
+        totalApiCalls++;
         const response = await gmail.users.messages.list({
           userId: 'me',
           maxResults: batchSize,
@@ -69,24 +71,50 @@ export class GmailService {
         allMessages = allMessages.concat(response.data.messages);
         totalFetched += response.data.messages.length;
         
-        logger.info(`📧 Page ${pageNumber}: Found ${response.data.messages.length} messages (total: ${totalFetched})`);
+        logger.info(`📧 Page ${pageNumber}: Found ${response.data.messages.length} messages (total: ${totalFetched}/${maxResults})`);
+        logger.info(`📊 API calls made: ${totalApiCalls}, Quota units used: ~${totalApiCalls * 5}`);
+        
+        // Check if we have enough messages
+        if (totalFetched >= maxResults) {
+          logger.info(`✅ Reached target of ${maxResults} messages, stopping pagination`);
+          break;
+        }
         
         // Set up for next iteration
         pageToken = response.data.nextPageToken;
         pageNumber++;
         
-        // Continue if we need more messages and there's a next page
-      } while (totalFetched < maxResults && pageToken);
+        // Safety check to prevent infinite loops
+        if (pageNumber > 20) {
+          logger.warn(`⚠️ Reached maximum page limit (20), stopping pagination at ${totalFetched} messages`);
+          break;
+        }
+        
+        // Small delay to be nice to the API
+        if (pageToken) {
+          await new Promise(resolve => setTimeout(resolve, 100));
+        }
+        
+        // Continue if there's a next page
+      } while (pageToken);
       
       if (!pageToken && totalFetched < maxResults) {
         logger.info(`📭 Reached end of available messages. Found ${totalFetched} total messages.`);
       }
   
       logger.info(`📧 Total messages collected: ${allMessages.length}, fetching details...`);
+      logger.info(`📊 Total API calls for listing: ${totalApiCalls}, Estimated quota units: ${totalApiCalls * 5}`);
+  
+      // Truncate if we got more than requested
+      if (allMessages.length > maxResults) {
+        allMessages = allMessages.slice(0, maxResults);
+        logger.info(`✂️ Truncated to ${maxResults} messages as requested`);
+      }
   
       // Process messages in batches to avoid overwhelming the API
       const batchSize = 50; // Process 50 message details at a time
       const messages = [];
+      let detailApiCalls = 0;
       
       for (let i = 0; i < allMessages.length; i += batchSize) {
         const batch = allMessages.slice(i, i + batchSize);
@@ -94,6 +122,7 @@ export class GmailService {
         
         const batchPromises = batch.map(async (message) => {
           try {
+            detailApiCalls++;
             const details = await gmail.users.messages.get({
               userId: 'me',
               id: message.id,
@@ -110,14 +139,20 @@ export class GmailService {
         const batchResults = await Promise.all(batchPromises);
         messages.push(...batchResults);
         
+        // Log quota usage periodically
+        if (i % 200 === 0) {
+          logger.info(`📊 Message detail API calls: ${detailApiCalls}, Estimated quota units: ${detailApiCalls * 5}`);
+        }
+        
         // Small delay between batches to be nice to the API
         if (i + batchSize < allMessages.length) {
-          await new Promise(resolve => setTimeout(resolve, 100));
+          await new Promise(resolve => setTimeout(resolve, 200));
         }
       }
   
       const validMessages = messages.filter(Boolean);
       logger.info(`✅ Successfully parsed ${validMessages.length} messages out of ${allMessages.length} total`);
+      logger.info(`📊 Total API calls: ${totalApiCalls + detailApiCalls}, Total quota units used: ~${(totalApiCalls * 5) + (detailApiCalls * 5)}`);
       
       return validMessages;
     } catch (error) {
