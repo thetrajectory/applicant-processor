@@ -1,7 +1,7 @@
 import { google } from 'googleapis';
-import { OAuth2AuthService } from './oauth-auth.js';
 import { CONFIG } from '../config.js';
 import { createLogger } from '../utils/logger.js';
+import { OAuth2AuthService } from './oauth-auth.js';
 
 const logger = createLogger();
 
@@ -48,13 +48,13 @@ export class SheetsService {
       // Check if headers exist
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-        range: 'A1:L1'  // Updated to match actual schema columns
+        range: 'A1:M1'  // Updated to include Message ID column
       });
       
       if (!response.data.values || response.data.values.length === 0) {
-        // Add headers matching database schema
+        // Add headers matching database schema including Message ID
         const headers = [
-          'Name', 'Title', 'Location', 'Expected Compensation',
+          'Message ID', 'Name', 'Title', 'Location', 'Expected Compensation',
           'Project ID', 'Screening Questions', 'Resume Raw Text',
           'Resume Drive Link', 'Mobile Number', 'Email',
           'LinkedIn URL', 'Processed At'
@@ -62,14 +62,14 @@ export class SheetsService {
         
         await sheets.spreadsheets.values.update({
           spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-          range: 'A1:L1',
+          range: 'A1:M1',
           valueInputOption: 'RAW',
           requestBody: {
             values: [headers]
           }
         });
         
-        logger.info('📊 Added headers to sheet');
+        logger.info('📊 Added headers to sheet with Message ID');
       } else {
         logger.info('📊 Headers already exist in sheet');
       }
@@ -79,13 +79,14 @@ export class SheetsService {
     }
   }
 
-  async appendApplicant(applicantData) {
+  async appendApplicant(applicantData, messageId = null) {
     try {
       const auth = await this.authService.getAuthClient();
       const sheets = google.sheets({ version: 'v4', auth });
       
-      // Match exact database schema order
+      // Match exact database schema order including Message ID
       const rowData = [
+        messageId || applicantData.message_id || '',  // Message ID first
         applicantData.name || '',
         applicantData.title || '',
         applicantData.location || '',
@@ -102,14 +103,14 @@ export class SheetsService {
       
       await sheets.spreadsheets.values.append({
         spreadsheetId: CONFIG.GOOGLE_SHEET_ID,
-        range: 'A:L',
+        range: 'A:M',
         valueInputOption: 'RAW',
         requestBody: {
           values: [rowData]
         }
       });
       
-      logger.info(`📊 Applicant added to sheet: ${applicantData.name}`);
+      logger.info(`📊 Applicant added to sheet: ${applicantData.name} (${messageId || 'no message ID'})`);
       
     } catch (error) {
       throw new Error(`Sheet append failed: ${error.message}`);

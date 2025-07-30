@@ -15,7 +15,7 @@ export class OAuth2AuthService {
     this.oauth2Client = new google.auth.OAuth2(
       CONFIG.GOOGLE_OAUTH_CONFIG.client_id,
       CONFIG.GOOGLE_OAUTH_CONFIG.client_secret,
-      'urn:ietf:wg:oauth:2.0:oob' // For installed applications
+      'urn:ietf:wg:oauth:2.0:oob'
     );
 
     if (CONFIG.GOOGLE_OAUTH_CONFIG.refresh_token) {
@@ -34,7 +34,6 @@ export class OAuth2AuthService {
         throw new Error('No refresh token available. Run setup first.');
       }
 
-      // This will automatically refresh the access token if needed
       const { token } = await this.oauth2Client.getAccessToken();
       
       if (!token) {
@@ -82,13 +81,13 @@ export class OAuth2AuthService {
     return this.oauth2Client.generateAuthUrl({
       access_type: 'offline',
       scope: scopes,
-      prompt: 'consent' // Force consent to get refresh token
+      prompt: 'consent'
     });
   }
 
   async exchangeCodeForToken(code) {
     try {
-      const { tokens } = await this.oauth2Client.getAccessToken(code);
+      const { tokens } = await this.oauth2Client.getToken(code);
       
       if (!tokens.refresh_token) {
         throw new Error('No refresh token received. Make sure to revoke previous access and try again.');

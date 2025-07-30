@@ -81,13 +81,9 @@ async function setupOAuth2() {
     }
     
     logger.info('🔄 Exchanging code for tokens...');
-    logger.info(`🔍 Code: ${code.substring(0, 20)}...`);
     
     try {
-      // Use the correct method for token exchange
       const tokenResponse = await oauth2Client.getToken(code);
-      
-      logger.info('🔍 Token response received');
       
       if (!tokenResponse || !tokenResponse.tokens) {
         throw new Error('No tokens in response');
@@ -96,8 +92,6 @@ async function setupOAuth2() {
       const tokens = tokenResponse.tokens;
       
       logger.info('✅ Tokens extracted successfully');
-      logger.info(`   Access token: ${tokens.access_token ? 'Present' : 'Missing'}`);
-      logger.info(`   Refresh token: ${tokens.refresh_token ? 'Present' : 'Missing'}`);
       
       if (!tokens.refresh_token) {
         logger.error('❌ No refresh token received!');
@@ -140,12 +134,6 @@ async function setupOAuth2() {
     } catch (tokenError) {
       logger.error('❌ Token exchange failed:');
       logger.error(`   Error: ${tokenError.message}`);
-      logger.error(`   Code: ${tokenError.code || 'N/A'}`);
-      logger.error(`   Status: ${tokenError.status || 'N/A'}`);
-      
-      if (tokenError.response?.data) {
-        logger.error(`   API Response: ${JSON.stringify(tokenError.response.data, null, 2)}`);
-      }
       
       logger.error('');
       logger.error('🔧 Common causes:');
@@ -155,18 +143,18 @@ async function setupOAuth2() {
       logger.error('   - System time is incorrect');
       
       process.exit(1);
-    }
-    
-  } catch (error) {
-    logger.error('❌ Setup failed:', error.message);
-    logger.error('Stack:', error.stack);
-    process.exit(1);
-  } finally {
-    rl.close();
-  }
+   }
+   
+ } catch (error) {
+   logger.error('❌ Setup failed:', error.message);
+   logger.error('Stack:', error.stack);
+   process.exit(1);
+ } finally {
+   rl.close();
+ }
 }
 
 setupOAuth2().catch(error => {
-  logger.error('💥 Setup failed:', error);
-  process.exit(1);
+ logger.error('💥 Setup failed:', error);
+ process.exit(1);
 });

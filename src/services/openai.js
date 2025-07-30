@@ -90,7 +90,6 @@ export class OpenAIService {
   async getUsage() {
     try {
       // Note: OpenAI doesn't provide usage stats in the API
-      // This is a placeholder for potential future implementation
       return { tokens_used: 0, requests_made: 0 };
     } catch (error) {
       logger.error(`Error getting OpenAI usage:`, error);

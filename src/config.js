@@ -10,25 +10,26 @@ export const CONFIG = {
   IS_LOCAL: !process.env.GITHUB_ACTIONS,
   IS_PRODUCTION: process.env.NODE_ENV === 'production',
   IS_GITHUB_ACTIONS: !!process.env.GITHUB_ACTIONS,
-  
-  // Gmail Configuration - Enhanced for better parsing
-  BATCH_SIZE: parseInt(process.env.BATCH_SIZE) || (process.env.GITHUB_ACTIONS ? 200 : 10),
-  MAX_EMAIL_AGE_DAYS: parseInt(process.env.MAX_EMAIL_AGE_DAYS) || (process.env.GITHUB_ACTIONS ? 7 : 14),
+
+  // Gmail Configuration
+  BATCH_SIZE: parseInt(process.env.BATCH_SIZE) || (process.env.GITHUB_ACTIONS ? 200 : 50),
+  MAX_EMAIL_AGE_DAYS: parseInt(process.env.MAX_EMAIL_AGE_DAYS) || (process.env.GITHUB_ACTIONS ? 7 : 30),
   
   // OCR Configuration
   OCR_LANGUAGE: 'eng',
-  OCR_TIMEOUT: 45000,  // Increased timeout
+  OCR_TIMEOUT: 45000,
   
-  // GPT Configuration - Enhanced for better extraction
+  // GPT Configuration
   GPT_MODEL: 'gpt-4o-mini',
-  GPT_MAX_TOKENS: 200,  // Increased for better extraction
+  GPT_MAX_TOKENS: 200,
   GPT_TEMPERATURE: 0.1,
-  GPT_TIMEOUT: 20000,   // Increased timeout
+  GPT_TIMEOUT: 20000,
   
-  // Supabase Configuration
+  // Supabase Configuration - Updated table names
   SUPABASE_URL: process.env.SUPABASE_URL,
   SUPABASE_KEY: process.env.SUPABASE_KEY,
-  TABLE_NAME: 'applicant_details',  // Fixed table name
+  TABLE_NAME: 'applicant_details_duplicate',
+  PROCESSED_MESSAGES_TABLE: 'processed_messages_duplicate',
   
   // OAuth2 Configuration
   GOOGLE_OAUTH_CONFIG: {
@@ -50,26 +51,40 @@ export const CONFIG = {
   DRY_RUN: process.env.DRY_RUN === 'true',
   TEST_MODE: process.env.TEST_MODE === 'true',
   
-  // Enhanced GPT Prompt for better extraction
+  // Enhanced GPT Prompt
   GPT_PROMPT: `Extract contact information from this resume text. Return ONLY a valid JSON object with these exact fields:
 
-{
-  "mobile_number": "phone number (include country code if present, format: +91-9876543210 or 9876543210)",
-  "email": "email address (must be valid email format)", 
-  "linkedin_url": "LinkedIn profile URL (complete URL starting with https://)"
-}
+    {
+      "mobile_number": "phone number (include country code if present, format: +91-9876543210 or 9876543210)",
+      "email": "email address (must be valid email format)", 
+      "linkedin_url": "LinkedIn profile URL (complete URL starting with https://)"
+    }
 
-IMPORTANT RULES:
-1. Return ONLY the JSON object, no markdown formatting, no code blocks, no explanatory text
-2. If any field is not found, use null
-3. For mobile_number: extract complete phone number with country code if available
-4. For email: must be a valid email address format
-5. For linkedin_url: must be complete LinkedIn profile URL
+    IMPORTANT RULES:
+    1. Return ONLY the JSON object, no markdown formatting, no code blocks, no explanatory text
+    2. If any field is not found, use null
+    3. For mobile_number: extract complete phone number with country code if available
+    4. For email: must be a valid email address format
+    5. For linkedin_url: must be complete LinkedIn profile URL
 
-Resume text:`
-};
+    Resume text:`,
+    
+    // OCR Configuration
+    ENABLE_MULTI_FORMAT_OCR: process.env.ENABLE_MULTI_FORMAT_OCR !== 'false',
+    MAX_ATTACHMENT_SIZE: parseInt(process.env.MAX_ATTACHMENT_SIZE) || 2 * 1024 * 1024, // 2MB
+    
+    // Supported attachment formats
+    SUPPORTED_RESUME_FORMATS: [
+      'application/pdf',
+      'image/jpeg', 'image/jpg', 'image/png', 'image/gif',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // DOCX
+      'application/msword', // DOC
+      'text/plain',
+      'application/rtf'
+    ],
+  };
 
-// Environment variable validation - Enhanced
+// Environment variable validation
 const requiredEnvVars = [
   { name: 'SUPABASE_URL', description: 'Supabase project URL' },
   { name: 'SUPABASE_KEY', description: 'Supabase service role key' },
@@ -81,7 +96,6 @@ const requiredEnvVars = [
   { name: 'GOOGLE_DRIVE_FOLDER_ID', description: 'Google Drive folder ID for file storage' }
 ];
 
-// Check for missing environment variables
 const missingVars = requiredEnvVars.filter(({ name }) => !process.env[name]);
 
 if (missingVars.length > 0) {
@@ -106,15 +120,12 @@ if (missingVars.length > 0) {
   throw new Error(`Missing ${missingVars.length} required environment variable(s): ${missingVars.map(v => v.name).join(', ')}`);
 }
 
-// Enhanced success message
 if (CONFIG.DEBUG_MODE && CONFIG.IS_LOCAL) {
   console.log('✅ Enhanced configuration loaded successfully');
   console.log(`   Environment: ${CONFIG.IS_GITHUB_ACTIONS ? 'GitHub Actions' : 'Local'}`);
   console.log(`   Debug Mode: ${CONFIG.DEBUG_MODE}`);
+  console.log(`   Main Table: ${CONFIG.TABLE_NAME}`);
+  console.log(`   Tracking Table: ${CONFIG.PROCESSED_MESSAGES_TABLE}`);
   console.log(`   Batch Size: ${CONFIG.BATCH_SIZE}`);
   console.log(`   Max Email Age: ${CONFIG.MAX_EMAIL_AGE_DAYS} days`);
-  console.log(`   OCR Enabled: ${CONFIG.ENABLE_OCR}`);
-  console.log(`   GPT Enabled: ${CONFIG.ENABLE_GPT}`);
-  console.log(`   OAuth2 Client ID: ${CONFIG.GOOGLE_OAUTH_CONFIG.client_id?.substring(0, 20)}...`);
-  console.log(`   All required environment variables are present`);
 }

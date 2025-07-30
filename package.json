@@ -1,7 +1,7 @@
 {
   "name": "applicant-processor-oauth2",
   "version": "2.0.0",
-  "description": "OAuth2-based automated applicant processing system using GitHub Actions",
+  "description": "OAuth2-based automated applicant processing system with message tracking",
   "type": "module",
   "main": "src/main.js",
   "scripts": {
@@ -9,19 +9,29 @@
     "test": "node src/health-check.js",
     "health": "node src/health-check.js",
     "setup": "node setup-oauth2.js",
-    "dev": "node --watch src/main.js"
+    "dev": "node --watch src/main.js",
+    "install-clean": "npm install --no-warnings"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.51.0",
+    "dotenv": "^16.6.1",
     "googleapis": "^128.0.0",
-    "openai": "^4.28.0",
-    "@supabase/supabase-js": "^2.39.0",
-    "winston": "^3.11.0",
-    "dotenv": "^16.3.1"
+    "openai": "^4.104.0",
+    "p-limit": "^6.2.0",
+    "p-queue": "^8.1.0",
+    "winston": "^3.17.0"
   },
   "engines": {
     "node": ">=18.0.0"
   },
-  "keywords": ["automation", "gmail", "oauth2", "applicant-tracking", "github-actions"],
-  "author": "Your Name",
+  "keywords": [
+    "automation",
+    "gmail",
+    "oauth2",
+    "applicant-tracking",
+    "github-actions",
+    "message-tracking"
+  ],
+  "author": "InCommon AI",
   "license": "MIT"
 }
