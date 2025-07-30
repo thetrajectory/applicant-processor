@@ -1,104 +1,118 @@
-name: Process Applicants with Message Tracking
+name: 🔥 Process Applicant Emails (OAuth2)
 
 on:
   schedule:
     # Run every 30 minutes
-    - cron: '*/30 * * * *'
-  workflow_dispatch:
-    inputs:
-      batch_size:
-        description: 'Number of emails to process'
-        required: false
-        default: '100'
-      max_age_days:
-        description: 'Maximum email age in days'
-        required: false
-        default: '7'
-      dry_run:
-        description: 'Run in dry-run mode (no actual changes)'
-        required: false
-        default: 'false'
-        type: choice
-        options:
-          - 'true'
-          - 'false'
+    - cron: "*/30 * * * *"
+  workflow_dispatch: # Allow manual trigger
+  push:
+    branches: [main]
+    paths: ["src/**"]
+
+env:
+  NODE_VERSION: "18"
+  TIMEOUT_MINUTES: 25
 
 jobs:
-  process-applicants:
+  process-emails:
+    name: 📧 Process Latest Emails
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    
-    environment: production
-    
+    timeout-minutes: 25
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '20'
-        cache: 'npm'
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
 
-    - name: Install dependencies
-      run: npm ci
+      - name: 📦 Install Dependencies
+        run: npm ci
 
-    - name: Run health check
-      env:
-        GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-        GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-        GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-        GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
-        GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
-        SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        BATCH_SIZE: ${{ github.event.inputs.batch_size || '100' }}
-        MAX_EMAIL_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
-        DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-        DEBUG_MODE: 'false'
-        WORKFLOW_RUN_ID: ${{ github.run_id }}
-      run: npm run health
+      - name: 🔧 Setup Environment
+        run: |
+          echo "WORKFLOW_RUN_ID=${{ github.run_id }}" >> $GITHUB_ENV
+          echo "WORKFLOW_RUN_NUMBER=${{ github.run_number }}" >> $GITHUB_ENV
 
-    - name: Process applicant emails
-      env:
-        GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
-        GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
-        GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
-        GOOGLE_SHEET_ID: ${{ vars.GOOGLE_SHEET_ID }}
-        GOOGLE_DRIVE_FOLDER_ID: ${{ vars.GOOGLE_DRIVE_FOLDER_ID }}
-        SUPABASE_URL: ${{ vars.SUPABASE_URL }}
-        SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-        BATCH_SIZE: ${{ github.event.inputs.batch_size || '100' }}
-        MAX_EMAIL_AGE_DAYS: ${{ github.event.inputs.max_age_days || '7' }}
-        DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
-        DEBUG_MODE: 'false'
-        WORKFLOW_RUN_ID: ${{ github.run_id }}
-      run: npm start
+      - name: 🚀 Process Applicant Emails
+        env:
+          # OAuth2 Configuration
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
 
-    - name: Upload processing logs
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: processing-logs-${{ github.run_id }}
-        path: |
-          logs/
-          stats.json
-        retention-days: 30
+          # Google Resources
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
 
-    - name: Upload stats as artifact
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: processing-stats-${{ github.run_id }}
-        path: stats.json
-        retention-days: 7
+          # Supabase Configuration
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
 
-    - name: Notify on failure
-      if: failure()
-      uses: actions/github-script@v7
-      with:
-        script: |
-          const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-          console.log(`❌ Applicant processing failed. Check logs: ${runUrl}`);
+          # OpenAI Configuration
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+          # Application Configuration
+          BATCH_SIZE: ${{ vars.BATCH_SIZE || '50' }}
+          MAX_EMAIL_AGE_DAYS: ${{ vars.MAX_EMAIL_AGE_DAYS || '7' }}
+          DEBUG_MODE: ${{ vars.DEBUG_MODE || 'false' }}
+          ENABLE_OCR: ${{ vars.ENABLE_OCR || 'true' }}
+          ENABLE_GPT: ${{ vars.ENABLE_GPT || 'true' }}
+
+        run: node src/main.js
+
+      - name: 📊 Upload Processing Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: processing-logs-${{ github.run_id }}
+          path: logs/
+          retention-days: 7
+
+      - name: 📈 Upload Processing Stats
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: processing-stats-${{ github.run_id }}
+          path: stats.json
+          retention-days: 30
+
+      - name: 🚨 Notify on Failure
+        if: failure()
+        run: |
+          echo "::error::Email processing failed in run ${{ github.run_id }}"
+          echo "Check the logs for more details"
+
+  # Health check job (optional)
+  health-check:
+    name: 🏥 System Health Check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+
+      - name: 📦 Install Dependencies
+        run: npm ci
+
+      - name: 🔍 Run Health Checks
+        env:
+          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_REFRESH_TOKEN: ${{ secrets.GOOGLE_REFRESH_TOKEN }}
+          GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node src/health-check.js
