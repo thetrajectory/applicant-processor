@@ -12,8 +12,8 @@ export const CONFIG = {
   IS_GITHUB_ACTIONS: !!process.env.GITHUB_ACTIONS,
 
   // Gmail Configuration
-  BATCH_SIZE: parseInt(process.env.BATCH_SIZE) || (process.env.GITHUB_ACTIONS ? 200 : 50),
-  MAX_EMAIL_AGE_DAYS: parseInt(process.env.MAX_EMAIL_AGE_DAYS) || (process.env.GITHUB_ACTIONS ? 7 : 30),
+  BATCH_SIZE: parseInt(process.env.BATCH_SIZE) || (process.env.GITHUB_ACTIONS ? 300 : 50),
+  MAX_EMAIL_AGE_DAYS: parseInt(process.env.MAX_EMAIL_AGE_DAYS) || (process.env.GITHUB_ACTIONS ? 30 : 60),
   
   // OCR Configuration
   OCR_LANGUAGE: 'eng',
